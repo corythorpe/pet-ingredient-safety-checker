@@ -16,10 +16,19 @@ services:
   envs:
   - key: FLASK_ENV
     value: production
-  - key: OPENAI_API_KEY
+  - key: GRADIENT_ACCESS_TOKEN
     scope: RUN_TIME
     type: SECRET
-  - key: TAVILY_API_KEY
+  - key: GRADIENT_WORKSPACE_ID
+    scope: RUN_TIME
+    type: SECRET
+  - key: GRADIENT_RESEARCH_AGENT_ID
+    scope: RUN_TIME
+    type: SECRET
+  - key: GRADIENT_RISK_AGENT_ID
+    scope: RUN_TIME
+    type: SECRET
+  - key: GRADIENT_FACTCHECK_AGENT_ID
     scope: RUN_TIME
     type: SECRET
 databases:
