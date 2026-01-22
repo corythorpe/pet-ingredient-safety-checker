@@ -1,4 +1,4 @@
-name: pet-ingredient-safety-checker-final
+name: pet-safety-checker
 region: nyc
 services:
 - name: web
