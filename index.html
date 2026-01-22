@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pet Ingredient Safety Checker</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🐾 Pet Ingredient Safety Checker</h1>
+            <p>Get professional risk assessments for pet food and medication ingredients</p>
+        </header>
+
+        <main class="input-section">
+            <div class="form-container">
+                <div class="pet-selector">
+                    <label for="petType">Select your pet:</label>
+                    <select id="petType" name="petType">
+                        <option value="cat">🐱 Cat</option>
+                        <option value="dog">🐕 Dog</option>
+                    </select>
+                </div>
+
+                <div class="category-selector">
+                    <label for="ingredientCategory">What type of ingredients are you checking?</label>
+                    <select id="ingredientCategory" name="ingredientCategory">
+                        <option value="food">🍖 Food Ingredients</option>
+                        <option value="medication">💊 Medication Ingredients</option>
+                        <option value="mixed">🔍 Mixed (Food & Medication)</option>
+                    </select>
+                </div>
+
+                <div class="ingredients-input">
+                    <label for="ingredients">Enter ingredients (one per line or comma-separated):</label>
+                    <textarea 
+                        id="ingredients" 
+                        name="ingredients" 
+                        placeholder="Food Examples:&#10;chocolate&#10;onions&#10;garlic&#10;chicken&#10;rice&#10;&#10;Medication Examples:&#10;ibuprofen&#10;acetaminophen&#10;aspirin&#10;xylitol&#10;caffeine"
+                        rows="10"
+                    ></textarea>
+                </div>
+
+                <button id="evaluateBtn" class="evaluate-btn">
+                    <span class="btn-text">Evaluate Ingredients</span>
+                    <span class="loading-spinner" style="display: none;">🔄</span>
+                </button>
+
+                <div class="disclaimer">
+                    <p><strong>Disclaimer:</strong> This tool provides general guidance based on veterinary sources. Always consult your veterinarian for specific dietary advice and medication safety. Never give human medications to pets without veterinary approval.</p>
+                </div>
+            </div>
+        </main>
+
+        <div id="results" class="results-section" style="display: none;">
+            <h2>Safety Assessment Results</h2>
+            <div id="resultsContent"></div>
+            <button id="newSearchBtn" class="secondary-btn">New Search</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
