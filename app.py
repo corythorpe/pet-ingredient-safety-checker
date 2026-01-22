@@ -12,7 +12,7 @@ from datetime import datetime
 import json
 import asyncio
 import aiohttp
-from openai import OpenAI
+from gradientai import Gradient
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -25,11 +25,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
-# Initialize OpenAI client for Gradient AI
-client = OpenAI(
-    api_key=os.getenv('OPENAI_API_KEY'),
-    base_url="https://api.openai.com/v1"
-)
+# Initialize Gradient AI client
+gradient_client = None
+if os.getenv('GRADIENT_ACCESS_TOKEN') and os.getenv('GRADIENT_WORKSPACE_ID'):
+    gradient_client = Gradient(
+        access_token=os.getenv('GRADIENT_ACCESS_TOKEN'),
+        workspace_id=os.getenv('GRADIENT_WORKSPACE_ID')
+    )
 
 class RealMultiAgentSystem:
     """Real multi-agent system using Gradient AI and web research"""
@@ -109,42 +111,60 @@ class RealResearchAgent:
         }
     
     async def _search_web(self, query):
-        """Simulate web search - in production, this would use a real search API"""
-        # For demo purposes, we'll use AI to generate realistic research data
-        # In production, you'd integrate with Google Search API, Bing API, or similar
+        """Use Gradient AI deployed agent for web research"""
+        
+        if not gradient_client:
+            logger.warning("Gradient AI not configured - using fallback research")
+            return self._fallback_research(query)
         
         try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a veterinary research assistant. Provide factual information about pet ingredient safety based on veterinary sources like ASPCA, Pet Poison Helpline, and veterinary literature. Always cite specific sources."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Research query: {query}. Provide factual information about this ingredient's safety for pets, including specific sources and any toxic mechanisms."
-                    }
-                ],
-                max_tokens=300,
-                temperature=0.1
+            # Get the deployed research agent model
+            research_model = gradient_client.get_model(
+                model_id=os.getenv('GRADIENT_RESEARCH_AGENT_ID', 'llama2-7b-chat')
+            )
+            
+            prompt = f"""You are a veterinary research assistant specializing in pet ingredient safety. 
+
+Research Query: {query}
+
+Provide factual information about this ingredient's safety for pets, including:
+1. Toxicity level and mechanisms
+2. Specific symptoms to watch for
+3. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
+4. Any breed-specific considerations
+
+Base your response on established veterinary literature and toxicology data."""
+
+            response = research_model.complete(
+                query=prompt,
+                max_generated_token_count=300
             )
             
             return {
                 'query': query,
-                'content': response.choices[0].message.content,
-                'source': 'AI-assisted veterinary research',
-                'timestamp': datetime.utcnow().isoformat()
+                'content': response.generated_output,
+                'source': 'Gradient AI Research Agent',
+                'timestamp': datetime.utcnow().isoformat(),
+                'model_id': research_model.id
             }
         except Exception as e:
-            logger.error(f"AI research failed: {e}")
-            return None
+            logger.error(f"Gradient AI research failed: {e}")
+            return self._fallback_research(query)
+    
+    def _fallback_research(self, query):
+        """Fallback research when Gradient AI is unavailable"""
+        return {
+            'query': query,
+            'content': f"Research needed for: {query}. Please consult veterinary sources like ASPCA Animal Poison Control for accurate information.",
+            'source': 'Fallback research',
+            'timestamp': datetime.utcnow().isoformat()
+        }
 
 class RealRiskAnalysisAgent:
     """Agent that uses AI to analyze risk levels"""
     
     async def analyze(self, research_data, pet_type):
-        """Use AI to analyze research data and determine risk level"""
+        """Use Gradient AI deployed agent to analyze research data and determine risk level"""
         
         research_content = "\n".join([
             result['content'] for result in research_data['search_results'] 
@@ -154,13 +174,23 @@ class RealRiskAnalysisAgent:
         if not research_content:
             return 'medium'  # Default to medium risk if no research data
         
+        if not gradient_client:
+            logger.warning("Gradient AI not configured - using fallback risk analysis")
+            return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
+        
         try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"""You are a veterinary toxicology expert. Analyze the research data and categorize the risk level for {pet_type}s.
+            # Get the deployed risk analysis agent model
+            risk_model = gradient_client.get_model(
+                model_id=os.getenv('GRADIENT_RISK_AGENT_ID', 'llama2-7b-chat')
+            )
+            
+            prompt = f"""You are a veterinary toxicology expert. Analyze the research data and categorize the risk level for {pet_type}s.
+
+Ingredient: {research_data['ingredient']}
+Pet Type: {pet_type}
+
+Research Data:
+{research_content}
 
 Risk Categories:
 - HIGH: Toxic, can cause serious illness or death
@@ -169,17 +199,13 @@ Risk Categories:
 - NO: Safe for consumption
 
 Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Analyze this research data for {research_data['ingredient']} safety in {pet_type}s:\n\n{research_content}"
-                    }
-                ],
-                max_tokens=10,
-                temperature=0.1
+
+            response = risk_model.complete(
+                query=prompt,
+                max_generated_token_count=10
             )
             
-            risk_response = response.choices[0].message.content.strip().upper()
+            risk_response = response.generated_output.strip().upper()
             
             # Map response to our risk levels
             risk_mapping = {
@@ -192,44 +218,68 @@ Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
             return risk_mapping.get(risk_response, 'medium')
             
         except Exception as e:
-            logger.error(f"Risk analysis failed: {e}")
+            logger.error(f"Gradient AI risk analysis failed: {e}")
+            return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
+    
+    def _fallback_risk_analysis(self, ingredient, pet_type):
+        """Fallback risk analysis when Gradient AI is unavailable"""
+        # Basic safety knowledge for common ingredients
+        high_risk = ['chocolate', 'grapes', 'raisins', 'onion', 'garlic', 'xylitol', 'caffeine', 'alcohol']
+        safe_ingredients = ['rice', 'chicken', 'carrots', 'pumpkin', 'sweet potato']
+        
+        ingredient_lower = ingredient.lower()
+        
+        if any(risky in ingredient_lower for risky in high_risk):
+            return 'high'
+        elif any(safe in ingredient_lower for safe in safe_ingredients):
+            return 'no'
+        else:
             return 'medium'
 
 class RealFactCheckerAgent:
     """Agent that fact-checks and validates findings"""
     
     async def validate(self, research_data, risk_level, pet_type):
-        """Validate research findings and add additional context"""
+        """Use Gradient AI deployed agent to validate research findings and add additional context"""
         
         research_content = "\n".join([
             result['content'] for result in research_data['search_results'] 
             if result and 'content' in result
         ])
         
+        if not gradient_client:
+            logger.warning("Gradient AI not configured - using fallback fact checking")
+            return self._fallback_fact_check(research_data, risk_level, pet_type)
+        
         try:
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"""You are a veterinary fact-checker. Review the research and risk assessment for accuracy. Provide:
+            # Get the deployed fact checker agent model
+            fact_check_model = gradient_client.get_model(
+                model_id=os.getenv('GRADIENT_FACTCHECK_AGENT_ID', 'llama2-7b-chat')
+            )
+            
+            prompt = f"""You are a veterinary fact-checker. Review the research and risk assessment for accuracy.
+
+Ingredient: {research_data['ingredient']}
+Pet Type: {pet_type}
+Proposed Risk Level: {risk_level}
+
+Research Data:
+{research_content}
+
+Provide:
 1. Validation of the risk level (confirm or suggest correction)
 2. Key toxic mechanisms if applicable
 3. Specific symptoms to watch for
 4. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
 
 Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sources"""
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Fact-check this assessment:\nIngredient: {research_data['ingredient']}\nPet: {pet_type}\nRisk Level: {risk_level}\nResearch: {research_content}"
-                    }
-                ],
-                max_tokens=400,
-                temperature=0.1
+
+            response = fact_check_model.complete(
+                query=prompt,
+                max_generated_token_count=400
             )
             
-            fact_check_response = response.choices[0].message.content
+            fact_check_response = response.generated_output
             
             # Try to parse JSON response
             try:
@@ -249,14 +299,19 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
             return research_data
             
         except Exception as e:
-            logger.error(f"Fact checking failed: {e}")
-            research_data['fact_check'] = {
-                'validated_risk': risk_level,
-                'mechanism': 'Unable to verify - consult veterinarian',
-                'symptoms': 'Monitor pet closely',
-                'authoritative_sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'
-            }
-            return research_data
+            logger.error(f"Gradient AI fact checking failed: {e}")
+            return self._fallback_fact_check(research_data, risk_level, pet_type)
+    
+    def _fallback_fact_check(self, research_data, risk_level, pet_type):
+        """Fallback fact checking when Gradient AI is unavailable"""
+        research_data['fact_check'] = {
+            'validated_risk': risk_level,
+            'mechanism': 'Unable to verify - consult veterinarian',
+            'symptoms': 'Monitor pet closely',
+            'authoritative_sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'
+        }
+        research_data['validated_risk'] = risk_level
+        return research_data
 
 class RealFormatterAgent:
     """Agent that formats the final output"""
@@ -328,11 +383,11 @@ def evaluate_ingredients():
         if not ingredients:
             return jsonify({'error': 'No ingredients provided'}), 400
         
-        logger.info(f"🚀 Processing request with REAL AI: {len(ingredients)} ingredients for {pet_type}")
+        logger.info(f"🚀 Processing request with Gradient AI: {len(ingredients)} ingredients for {pet_type}")
         
-        # Check if we have API key
-        if not os.getenv('OPENAI_API_KEY'):
-            logger.warning("No OpenAI API key found - using fallback mode")
+        # Check if we have Gradient AI configured
+        if not gradient_client:
+            logger.warning("Gradient AI not configured - using fallback mode")
             return jsonify({
                 'success': True,
                 'results': _fallback_analysis(ingredients, pet_type),
@@ -342,7 +397,7 @@ def evaluate_ingredients():
                 'mode': 'fallback'
             })
         
-        # Process through real multi-agent system
+        # Process through real Gradient AI multi-agent system
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
@@ -354,7 +409,7 @@ def evaluate_ingredients():
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'ai_powered'
+            'mode': 'gradient_ai_powered'
         })
         
     except Exception as e:
@@ -405,7 +460,14 @@ def health_check():
             'fact_checker_agent': 'active',
             'formatter_agent': 'active'
         },
-        'ai_enabled': bool(os.getenv('OPENAI_API_KEY'))
+        'gradient_ai_enabled': bool(gradient_client),
+        'gradient_config': {
+            'access_token_configured': bool(os.getenv('GRADIENT_ACCESS_TOKEN')),
+            'workspace_id_configured': bool(os.getenv('GRADIENT_WORKSPACE_ID')),
+            'research_agent_id': os.getenv('GRADIENT_RESEARCH_AGENT_ID', 'llama2-7b-chat'),
+            'risk_agent_id': os.getenv('GRADIENT_RISK_AGENT_ID', 'llama2-7b-chat'),
+            'factcheck_agent_id': os.getenv('GRADIENT_FACTCHECK_AGENT_ID', 'llama2-7b-chat')
+        }
     })
 
 if __name__ == '__main__':
@@ -413,11 +475,15 @@ if __name__ == '__main__':
     debug = os.getenv('FLASK_ENV') == 'development'
     
     logger.info(f"🐾 Starting Pet Ingredient Safety Checker on port {port}")
-    logger.info("🤖 Real Multi-Agent System initialized and ready")
+    logger.info("🤖 Gradient AI Multi-Agent System initialized and ready")
     
-    if os.getenv('OPENAI_API_KEY'):
-        logger.info("✅ OpenAI API key found - AI-powered analysis enabled")
+    if gradient_client:
+        logger.info("✅ Gradient AI configured - Real AI-powered analysis enabled")
+        logger.info(f"   Research Agent: {os.getenv('GRADIENT_RESEARCH_AGENT_ID', 'llama2-7b-chat')}")
+        logger.info(f"   Risk Agent: {os.getenv('GRADIENT_RISK_AGENT_ID', 'llama2-7b-chat')}")
+        logger.info(f"   Fact Check Agent: {os.getenv('GRADIENT_FACTCHECK_AGENT_ID', 'llama2-7b-chat')}")
     else:
-        logger.warning("⚠️ No OpenAI API key found - using fallback mode")
+        logger.warning("⚠️ Gradient AI not configured - using fallback mode")
+        logger.warning("   Set GRADIENT_ACCESS_TOKEN and GRADIENT_WORKSPACE_ID for AI-powered analysis")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
