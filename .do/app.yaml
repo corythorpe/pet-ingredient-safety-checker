@@ -1,4 +1,4 @@
-name: pet-safety-checker-v3
+name: pet-ingredient-safety-checker-final
 region: nyc
 services:
 - name: web
@@ -6,7 +6,7 @@ services:
   github:
     repo: corythorpe/pet-ingredient-safety-checker
     branch: main
-  run_command: gunicorn --bind 0.0.0.0:$PORT --workers 2 app_minimal:app
+  run_command: gunicorn --bind 0.0.0.0:$PORT --workers 2 app:app
   environment_slug: python
   instance_count: 1
   instance_size_slug: basic-xxs
