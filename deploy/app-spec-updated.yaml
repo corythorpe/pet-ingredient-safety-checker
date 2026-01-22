@@ -1,0 +1,23 @@
+# DigitalOcean App Platform Configuration
+# Pet Ingredient Safety Checker - Updated Version
+
+name: pet-safety-checker-updated
+services:
+- name: web
+  source_dir: /
+  run_command: python3 simple_server.py
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 5000
+  routes:
+  - path: /
+  health_check:
+    http_path: /
+  envs:
+  - key: PYTHONPATH
+    scope: RUN_TIME
+    value: "/app"
+  - key: PORT
+    scope: RUN_TIME
+    value: "5000"

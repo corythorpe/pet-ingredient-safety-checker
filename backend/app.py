@@ -37,7 +37,7 @@ app = Flask(__name__, template_folder='../templates', static_folder='../static')
 CORS(app)
 
 # Database configuration
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost/pet_safety')
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///pet_safety.db')
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

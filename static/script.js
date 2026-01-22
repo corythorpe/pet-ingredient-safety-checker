@@ -11,7 +11,6 @@ class PetIngredientChecker {
         this.newSearchBtn = document.getElementById('newSearchBtn');
         this.ingredientsTextarea = document.getElementById('ingredients');
         this.petTypeSelect = document.getElementById('petType');
-        this.categorySelect = document.getElementById('ingredientCategory');
         this.resultsSection = document.getElementById('results');
         this.resultsContent = document.getElementById('resultsContent');
         this.inputSection = document.querySelector('.input-section');
@@ -33,7 +32,6 @@ class PetIngredientChecker {
     async handleEvaluate() {
         const ingredients = this.parseIngredients(this.ingredientsTextarea.value);
         const petType = this.petTypeSelect.value;
-        const category = this.categorySelect.value;
 
         if (ingredients.length === 0) {
             alert('Please enter at least one ingredient.');
@@ -52,7 +50,7 @@ class PetIngredientChecker {
                 body: JSON.stringify({
                     ingredients: ingredients,
                     pet_type: petType,
-                    category: category
+                    category: 'mixed'  // Always use mixed category
                 })
             });
 
@@ -63,7 +61,7 @@ class PetIngredientChecker {
             const data = await response.json();
             
             if (data.success) {
-                this.displayResults(data.results, petType, category);
+                this.displayResults(data.results, petType);
             } else {
                 throw new Error(data.error || 'Unknown error occurred');
             }
@@ -76,11 +74,79 @@ class PetIngredientChecker {
     }
 
     parseIngredients(text) {
-        return text
-            .split(/[,\n]/)
-            .map(ingredient => ingredient.trim())
-            .filter(ingredient => ingredient.length > 0)
-            .map(ingredient => ingredient.toLowerCase());
+        // Advanced parsing to extract ingredients from any text format
+        const knownIngredients = [
+            // Dangerous foods
+            'chocolate', 'onion', 'onions', 'garlic', 'grapes', 'raisins', 'xylitol',
+            'avocado', 'macadamia nuts', 'macadamia', 'walnuts', 'almonds', 'nuts',
+            'caffeine', 'coffee', 'tea', 'alcohol', 'beer', 'wine', 'hops',
+            
+            // Common medications
+            'ibuprofen', 'acetaminophen', 'aspirin', 'tylenol', 'advil', 'motrin',
+            'naproxen', 'aleve', 'paracetamol', 'codeine', 'tramadol',
+            
+            // Safe foods
+            'chicken', 'rice', 'beef', 'pork', 'fish', 'salmon', 'tuna', 'turkey',
+            'carrots', 'peas', 'sweet potato', 'potato', 'pumpkin', 'spinach',
+            'broccoli', 'green beans', 'blueberries', 'apples', 'bananas',
+            
+            // Dairy and others
+            'milk', 'cheese', 'yogurt', 'butter', 'eggs', 'bread', 'yeast',
+            'salt', 'sugar', 'honey', 'corn', 'wheat', 'soy', 'dairy'
+        ];
+        
+        const foundIngredients = new Set();
+        const textLower = text.toLowerCase();
+        
+        // Method 1: Find known ingredients by substring matching
+        knownIngredients.forEach(ingredient => {
+            // Use word boundaries to avoid partial matches
+            const regex = new RegExp(`\\b${ingredient.replace(/\s+/g, '\\s+')}\\b`, 'i');
+            if (regex.test(textLower)) {
+                foundIngredients.add(ingredient);
+            }
+        });
+        
+        // Method 2: Parse by common separators and clean up
+        const separatorParsed = text
+            .split(/[,\n;•\-\*\d+\.\)\(]/) // Split on various separators and list markers
+            .map(item => {
+                // Clean up the item
+                return item
+                    .replace(/\d+\s*(mg|g|ml|oz|lbs?|cups?|tbsp|tsp|tablets?|capsules?|pills?)/gi, '') // Remove measurements
+                    .replace(/\b(with|and|or|plus|contains?|including?)\b/gi, ' ') // Remove connecting words
+                    .replace(/[^\w\s]/g, ' ') // Remove special characters
+                    .trim()
+                    .toLowerCase();
+            })
+            .filter(item => item.length > 2 && item.length < 30) // Reasonable length
+            .filter(item => !/^\d+$/.test(item)) // Remove pure numbers
+            .filter(item => !/(the|and|or|with|for|from|this|that|these|those|very|much|many|some|any|all)/.test(item)); // Remove common words
+        
+        separatorParsed.forEach(ingredient => {
+            if (ingredient.trim()) {
+                foundIngredients.add(ingredient.trim());
+            }
+        });
+        
+        // Method 3: Look for ingredient patterns in natural language
+        const ingredientPatterns = [
+            /(?:contains?|includes?|has|with)\s+([a-zA-Z\s]{3,20})(?:\s|,|$)/gi,
+            /(?:made with|contains?)\s+([a-zA-Z\s]{3,20})(?:\s|,|$)/gi,
+            /([a-zA-Z\s]{3,20})\s+(?:extract|powder|oil|supplement)/gi
+        ];
+        
+        ingredientPatterns.forEach(pattern => {
+            let match;
+            while ((match = pattern.exec(text)) !== null) {
+                const ingredient = match[1].trim().toLowerCase();
+                if (ingredient.length > 2 && ingredient.length < 25) {
+                    foundIngredients.add(ingredient);
+                }
+            }
+        });
+        
+        return Array.from(foundIngredients).filter(ingredient => ingredient.length > 1);
     }
 
     showLoading(isLoading) {
@@ -94,16 +160,14 @@ class PetIngredientChecker {
         }
     }
 
-    displayResults(results, petType, category) {
+    displayResults(results, petType) {
         this.inputSection.style.display = 'none';
         this.resultsSection.style.display = 'block';
 
         const petEmoji = petType === 'cat' ? '🐱' : '🐕';
-        const categoryEmoji = category === 'food' ? '🍖' : category === 'medication' ? '💊' : '🔍';
-        const categoryText = category === 'food' ? 'Food' : category === 'medication' ? 'Medication' : 'Food & Medication';
         
         const resultsHeader = this.resultsSection.querySelector('h2');
-        resultsHeader.textContent = `${petEmoji} ${categoryEmoji} ${categoryText} Safety Assessment for ${petType.charAt(0).toUpperCase() + petType.slice(1)}s`;
+        resultsHeader.textContent = `${petEmoji} 🔍 Ingredient Safety Assessment for ${petType.charAt(0).toUpperCase() + petType.slice(1)}s`;
 
         this.resultsContent.innerHTML = this.generateResultsHTML(results);
     }
