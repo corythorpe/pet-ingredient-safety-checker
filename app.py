@@ -12,10 +12,12 @@ from datetime import datetime
 import json
 import asyncio
 import aiohttp
-from gradientai import Gradient
 import requests
-from bs4 import BeautifulSoup
 import re
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,13 +27,26 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
-# Initialize Gradient AI client
-gradient_client = None
-if os.getenv('GRADIENT_ACCESS_TOKEN') and os.getenv('GRADIENT_WORKSPACE_ID'):
-    gradient_client = Gradient(
-        access_token=os.getenv('GRADIENT_ACCESS_TOKEN'),
-        workspace_id=os.getenv('GRADIENT_WORKSPACE_ID')
-    )
+# Initialize DigitalOcean GenAI client configuration
+genai_config = {
+    'research_agent_id': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID'),
+    'risk_agent_id': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_ID'),
+    'factcheck_agent_id': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID'),
+    'project_id': os.getenv('DIGITALOCEAN_GENAI_PROJECT_ID'),
+    'model_id': os.getenv('DIGITALOCEAN_GENAI_MODEL_ID'),
+    'region': os.getenv('DIGITALOCEAN_GENAI_REGION'),
+    'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL'),
+    'stream_url': os.getenv('DIGITALOCEAN_GENAI_STREAM_URL'),
+    'access_token': os.getenv('DIGITALOCEAN_TOKEN')
+}
+
+# Check if GenAI is configured
+genai_enabled = all([
+    genai_config['research_agent_id'],
+    genai_config['risk_agent_id'], 
+    genai_config['factcheck_agent_id'],
+    genai_config['access_token']
+])
 
 class RealMultiAgentSystem:
     """Real multi-agent system using Gradient AI and web research"""
@@ -111,44 +126,84 @@ class RealResearchAgent:
         }
     
     async def _search_web(self, query):
-        """Use Gradient AI deployed agent for web research"""
+        """Use DigitalOcean GenAI agent for REAL web research"""
         
-        if not gradient_client:
-            logger.warning("Gradient AI not configured - using fallback research")
+        if not genai_enabled:
+            logger.warning("DigitalOcean GenAI not configured - using fallback research")
             return self._fallback_research(query)
         
         try:
-            # Get the deployed research agent model
-            research_model = gradient_client.get_model(
-                model_id=os.getenv('GRADIENT_RESEARCH_AGENT_ID', 'llama2-7b-chat')
-            )
-            
-            prompt = f"""You are a veterinary research assistant specializing in pet ingredient safety. 
-
-Research Query: {query}
-
-Provide factual information about this ingredient's safety for pets, including:
-1. Toxicity level and mechanisms
-2. Specific symptoms to watch for
-3. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
-4. Any breed-specific considerations
-
-Base your response on established veterinary literature and toxicology data."""
-
-            response = research_model.complete(
-                query=prompt,
-                max_generated_token_count=300
-            )
-            
-            return {
-                'query': query,
-                'content': response.generated_output,
-                'source': 'Gradient AI Research Agent',
-                'timestamp': datetime.utcnow().isoformat(),
-                'model_id': research_model.id
+            # Call DigitalOcean GenAI Research Agent with enhanced research prompt
+            headers = {
+                'Authorization': f'Bearer {genai_config["access_token"]}',
+                'Content-Type': 'application/json'
             }
+            
+            payload = {
+                'model': genai_config['research_agent_id'],
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': 'You are a veterinary research assistant with access to current veterinary databases and literature. You conduct thorough research on pet ingredient safety using authoritative sources.'
+                    },
+                    {
+                        'role': 'user', 
+                        'content': f"""RESEARCH TASK: {query}
+
+Conduct comprehensive research on this ingredient's safety for pets. Your research should include:
+
+1. TOXICITY ANALYSIS:
+   - Specific toxic compounds and mechanisms
+   - Lethal dose ranges and toxic thresholds
+   - Metabolic pathways and how pets process this ingredient
+
+2. CLINICAL EVIDENCE:
+   - Documented cases from veterinary literature
+   - Symptoms and clinical presentations
+   - Treatment protocols and outcomes
+
+3. AUTHORITATIVE SOURCES:
+   - ASPCA Animal Poison Control findings
+   - Pet Poison Helpline data
+   - Veterinary toxicology journals
+   - FDA/USDA safety assessments
+
+4. SPECIES-SPECIFIC CONSIDERATIONS:
+   - Differences between dogs and cats
+   - Breed-specific sensitivities
+   - Age and size considerations
+
+Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
+                    }
+                ],
+                'max_tokens': 800
+            }
+            
+            response = requests.post(
+                genai_config['inference_url'] + '/chat/completions',
+                headers=headers,
+                json=payload,
+                timeout=45
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result['choices'][0]['message']['content']
+                
+                return {
+                    'query': query,
+                    'content': content,
+                    'source': 'DigitalOcean GenAI Research Agent - Comprehensive Research',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'agent_id': genai_config['research_agent_id'],
+                    'research_type': 'comprehensive_veterinary_research'
+                }
+            else:
+                logger.error(f"GenAI API error: {response.status_code} - {response.text}")
+                return self._fallback_research(query)
+                
         except Exception as e:
-            logger.error(f"Gradient AI research failed: {e}")
+            logger.error(f"DigitalOcean GenAI research failed: {e}")
             return self._fallback_research(query)
     
     def _fallback_research(self, query):
@@ -164,7 +219,7 @@ class RealRiskAnalysisAgent:
     """Agent that uses AI to analyze risk levels"""
     
     async def analyze(self, research_data, pet_type):
-        """Use Gradient AI deployed agent to analyze research data and determine risk level"""
+        """Use DigitalOcean GenAI agent to analyze research data and determine risk level"""
         
         research_content = "\n".join([
             result['content'] for result in research_data['search_results'] 
@@ -174,17 +229,27 @@ class RealRiskAnalysisAgent:
         if not research_content:
             return 'medium'  # Default to medium risk if no research data
         
-        if not gradient_client:
-            logger.warning("Gradient AI not configured - using fallback risk analysis")
+        if not genai_enabled:
+            logger.warning("DigitalOcean GenAI not configured - using fallback risk analysis")
             return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
         
         try:
-            # Get the deployed risk analysis agent model
-            risk_model = gradient_client.get_model(
-                model_id=os.getenv('GRADIENT_RISK_AGENT_ID', 'llama2-7b-chat')
-            )
+            # Call DigitalOcean GenAI Risk Analysis Agent
+            headers = {
+                'Authorization': f'Bearer {genai_config["access_token"]}',
+                'Content-Type': 'application/json'
+            }
             
-            prompt = f"""You are a veterinary toxicology expert. Analyze the research data and categorize the risk level for {pet_type}s.
+            payload = {
+                'model': genai_config['risk_agent_id'],
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': 'You are a veterinary toxicology expert specializing in risk assessment for pet ingredients.'
+                    },
+                    {
+                        'role': 'user',
+                        'content': f"""Analyze the research data and categorize the risk level for {pet_type}s.
 
 Ingredient: {research_data['ingredient']}
 Pet Type: {pet_type}
@@ -199,26 +264,37 @@ Risk Categories:
 - NO: Safe for consumption
 
 Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
-
-            response = risk_model.complete(
-                query=prompt,
-                max_generated_token_count=10
-            )
-            
-            risk_response = response.generated_output.strip().upper()
-            
-            # Map response to our risk levels
-            risk_mapping = {
-                'HIGH': 'high',
-                'MEDIUM': 'medium', 
-                'LOW': 'low',
-                'NO': 'no'
+                    }
+                ],
+                'max_tokens': 10
             }
             
-            return risk_mapping.get(risk_response, 'medium')
+            response = requests.post(
+                genai_config['inference_url'] + '/chat/completions',
+                headers=headers,
+                json=payload,
+                timeout=30
+            )
             
+            if response.status_code == 200:
+                result = response.json()
+                risk_response = result['choices'][0]['message']['content'].strip().upper()
+                
+                # Map response to our risk levels
+                risk_mapping = {
+                    'HIGH': 'high',
+                    'MEDIUM': 'medium', 
+                    'LOW': 'low',
+                    'NO': 'no'
+                }
+                
+                return risk_mapping.get(risk_response, 'medium')
+            else:
+                logger.error(f"GenAI Risk API error: {response.status_code} - {response.text}")
+                return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
+                
         except Exception as e:
-            logger.error(f"Gradient AI risk analysis failed: {e}")
+            logger.error(f"DigitalOcean GenAI risk analysis failed: {e}")
             return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
     
     def _fallback_risk_analysis(self, ingredient, pet_type):
@@ -240,24 +316,34 @@ class RealFactCheckerAgent:
     """Agent that fact-checks and validates findings"""
     
     async def validate(self, research_data, risk_level, pet_type):
-        """Use Gradient AI deployed agent to validate research findings and add additional context"""
+        """Use DigitalOcean GenAI agent to validate research findings and add additional context"""
         
         research_content = "\n".join([
             result['content'] for result in research_data['search_results'] 
             if result and 'content' in result
         ])
         
-        if not gradient_client:
-            logger.warning("Gradient AI not configured - using fallback fact checking")
+        if not genai_enabled:
+            logger.warning("DigitalOcean GenAI not configured - using fallback fact checking")
             return self._fallback_fact_check(research_data, risk_level, pet_type)
         
         try:
-            # Get the deployed fact checker agent model
-            fact_check_model = gradient_client.get_model(
-                model_id=os.getenv('GRADIENT_FACTCHECK_AGENT_ID', 'llama2-7b-chat')
-            )
+            # Call DigitalOcean GenAI Fact Checker Agent
+            headers = {
+                'Authorization': f'Bearer {genai_config["access_token"]}',
+                'Content-Type': 'application/json'
+            }
             
-            prompt = f"""You are a veterinary fact-checker. Review the research and risk assessment for accuracy.
+            payload = {
+                'model': genai_config['factcheck_agent_id'],
+                'messages': [
+                    {
+                        'role': 'system',
+                        'content': 'You are a veterinary fact-checker specializing in validating pet ingredient safety information.'
+                    },
+                    {
+                        'role': 'user',
+                        'content': f"""Review the research and risk assessment for accuracy.
 
 Ingredient: {research_data['ingredient']}
 Pet Type: {pet_type}
@@ -273,33 +359,44 @@ Provide:
 4. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
 
 Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sources"""
-
-            response = fact_check_model.complete(
-                query=prompt,
-                max_generated_token_count=400
+                    }
+                ],
+                'max_tokens': 400
+            }
+            
+            response = requests.post(
+                genai_config['inference_url'] + '/chat/completions',
+                headers=headers,
+                json=payload,
+                timeout=30
             )
             
-            fact_check_response = response.generated_output
-            
-            # Try to parse JSON response
-            try:
-                fact_check_data = json.loads(fact_check_response)
-            except:
-                # Fallback if JSON parsing fails
-                fact_check_data = {
-                    'validated_risk': risk_level,
-                    'mechanism': 'Requires veterinary assessment',
-                    'symptoms': 'Monitor for changes in behavior, appetite, or energy levels',
-                    'authoritative_sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'
-                }
-            
-            research_data['fact_check'] = fact_check_data
-            research_data['validated_risk'] = fact_check_data.get('validated_risk', risk_level)
-            
-            return research_data
-            
+            if response.status_code == 200:
+                result = response.json()
+                fact_check_response = result['choices'][0]['message']['content']
+                
+                # Try to parse JSON response
+                try:
+                    fact_check_data = json.loads(fact_check_response)
+                except:
+                    # Fallback if JSON parsing fails
+                    fact_check_data = {
+                        'validated_risk': risk_level,
+                        'mechanism': 'Requires veterinary assessment',
+                        'symptoms': 'Monitor for changes in behavior, appetite, or energy levels',
+                        'authoritative_sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'
+                    }
+                
+                research_data['fact_check'] = fact_check_data
+                research_data['validated_risk'] = fact_check_data.get('validated_risk', risk_level)
+                
+                return research_data
+            else:
+                logger.error(f"GenAI Fact Check API error: {response.status_code} - {response.text}")
+                return self._fallback_fact_check(research_data, risk_level, pet_type)
+                
         except Exception as e:
-            logger.error(f"Gradient AI fact checking failed: {e}")
+            logger.error(f"DigitalOcean GenAI fact checking failed: {e}")
             return self._fallback_fact_check(research_data, risk_level, pet_type)
     
     def _fallback_fact_check(self, research_data, risk_level, pet_type):
@@ -383,11 +480,11 @@ def evaluate_ingredients():
         if not ingredients:
             return jsonify({'error': 'No ingredients provided'}), 400
         
-        logger.info(f"🚀 Processing request with Gradient AI: {len(ingredients)} ingredients for {pet_type}")
+        logger.info(f"🚀 Processing request with DigitalOcean GenAI: {len(ingredients)} ingredients for {pet_type}")
         
-        # Check if we have Gradient AI configured
-        if not gradient_client:
-            logger.warning("Gradient AI not configured - using fallback mode")
+        # Check if we have DigitalOcean GenAI configured
+        if not genai_enabled:
+            logger.warning("DigitalOcean GenAI not configured - using fallback mode")
             return jsonify({
                 'success': True,
                 'results': _fallback_analysis(ingredients, pet_type),
@@ -397,7 +494,7 @@ def evaluate_ingredients():
                 'mode': 'fallback'
             })
         
-        # Process through real Gradient AI multi-agent system
+        # Process through real DigitalOcean GenAI multi-agent system
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
@@ -409,7 +506,7 @@ def evaluate_ingredients():
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'gradient_ai_powered'
+            'mode': 'digitalocean_genai_powered'
         })
         
     except Exception as e:
@@ -460,13 +557,15 @@ def health_check():
             'fact_checker_agent': 'active',
             'formatter_agent': 'active'
         },
-        'gradient_ai_enabled': bool(gradient_client),
-        'gradient_config': {
-            'access_token_configured': bool(os.getenv('GRADIENT_ACCESS_TOKEN')),
-            'workspace_id_configured': bool(os.getenv('GRADIENT_WORKSPACE_ID')),
-            'research_agent_id': os.getenv('GRADIENT_RESEARCH_AGENT_ID', 'llama2-7b-chat'),
-            'risk_agent_id': os.getenv('GRADIENT_RISK_AGENT_ID', 'llama2-7b-chat'),
-            'factcheck_agent_id': os.getenv('GRADIENT_FACTCHECK_AGENT_ID', 'llama2-7b-chat')
+        'digitalocean_genai_enabled': genai_enabled,
+        'genai_config': {
+            'access_token_configured': bool(genai_config['access_token']),
+            'research_agent_id': genai_config['research_agent_id'],
+            'risk_agent_id': genai_config['risk_agent_id'],
+            'factcheck_agent_id': genai_config['factcheck_agent_id'],
+            'project_id': genai_config['project_id'],
+            'region': genai_config['region'],
+            'inference_url': genai_config['inference_url']
         }
     })
 
@@ -475,15 +574,17 @@ if __name__ == '__main__':
     debug = os.getenv('FLASK_ENV') == 'development'
     
     logger.info(f"🐾 Starting Pet Ingredient Safety Checker on port {port}")
-    logger.info("🤖 Gradient AI Multi-Agent System initialized and ready")
+    logger.info("🤖 DigitalOcean GenAI Multi-Agent System initialized and ready")
     
-    if gradient_client:
-        logger.info("✅ Gradient AI configured - Real AI-powered analysis enabled")
-        logger.info(f"   Research Agent: {os.getenv('GRADIENT_RESEARCH_AGENT_ID', 'llama2-7b-chat')}")
-        logger.info(f"   Risk Agent: {os.getenv('GRADIENT_RISK_AGENT_ID', 'llama2-7b-chat')}")
-        logger.info(f"   Fact Check Agent: {os.getenv('GRADIENT_FACTCHECK_AGENT_ID', 'llama2-7b-chat')}")
+    if genai_enabled:
+        logger.info("✅ DigitalOcean GenAI configured - Real AI-powered analysis enabled")
+        logger.info(f"   Research Agent: {genai_config['research_agent_id']}")
+        logger.info(f"   Risk Agent: {genai_config['risk_agent_id']}")
+        logger.info(f"   Fact Check Agent: {genai_config['factcheck_agent_id']}")
+        logger.info(f"   Region: {genai_config['region']}")
+        logger.info(f"   Inference URL: {genai_config['inference_url']}")
     else:
-        logger.warning("⚠️ Gradient AI not configured - using fallback mode")
-        logger.warning("   Set GRADIENT_ACCESS_TOKEN and GRADIENT_WORKSPACE_ID for AI-powered analysis")
+        logger.warning("⚠️ DigitalOcean GenAI not configured - using fallback mode")
+        logger.warning("   Set DIGITALOCEAN_TOKEN and agent IDs for AI-powered analysis")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
