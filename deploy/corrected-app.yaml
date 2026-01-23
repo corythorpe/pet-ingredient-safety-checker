@@ -1,0 +1,50 @@
+# DigitalOcean App Platform Configuration
+# Pet Ingredient Safety Checker - Corrected Version
+
+name: pet-ingredient-safety-checker
+services:
+- name: web
+  source_dir: /
+  run_command: python3 app.py
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 5000
+  routes:
+  - path: /
+  health_check:
+    http_path: /api/health
+  envs:
+  - key: PORT
+    scope: RUN_TIME
+    value: "5000"
+  - key: FLASK_ENV
+    scope: RUN_TIME
+    value: "production"
+  - key: DIGITALOCEAN_TOKEN
+    scope: RUN_TIME
+    type: SECRET
+  - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
+    scope: RUN_TIME
+    value: "research-agent-v1"
+  - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
+    scope: RUN_TIME
+    value: "risk-agent-v1"
+  - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
+    scope: RUN_TIME
+    value: "factcheck-agent-v1"
+  - key: DIGITALOCEAN_GENAI_PROJECT_ID
+    scope: RUN_TIME
+    value: "pet-safety-project"
+  - key: DIGITALOCEAN_GENAI_MODEL_ID
+    scope: RUN_TIME
+    value: "gpt-4"
+  - key: DIGITALOCEAN_GENAI_REGION
+    scope: RUN_TIME
+    value: "nyc1"
+  - key: DIGITALOCEAN_GENAI_INFERENCE_URL
+    scope: RUN_TIME
+    value: "https://api.digitalocean.com/v2/genai"
+  - key: DIGITALOCEAN_GENAI_STREAM_URL
+    scope: RUN_TIME
+    value: "https://api.digitalocean.com/v2/genai/stream"
