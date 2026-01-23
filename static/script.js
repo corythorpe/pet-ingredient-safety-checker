@@ -27,6 +27,16 @@ class PetIngredientChecker {
             const hasIngredients = this.ingredientsTextarea.value.trim().length > 0;
             this.evaluateBtn.disabled = !hasIngredients;
         });
+        
+        // Add Enter key support for textarea
+        this.ingredientsTextarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // Prevent new line
+                if (!this.evaluateBtn.disabled) {
+                    this.handleEvaluate();
+                }
+            }
+        });
     }
 
     async handleEvaluate() {
@@ -197,7 +207,7 @@ class PetIngredientChecker {
                                 <div class="ingredient-name">${this.capitalizeFirst(ingredient.name)}</div>
                                 <div class="ingredient-justification">${ingredient.justification}</div>
                                 <div class="ingredient-sources">
-                                    <strong>Sources:</strong> ${ingredient.sources}
+                                    <strong>Sources:</strong> ${this.makeUrlsClickable(ingredient.sources)}
                                 </div>
                                 ${ingredient.cached ? '<div class="cached-indicator">📋 Cached Result</div>' : '<div class="live-indicator">🔍 Live Research</div>'}
                             </div>
@@ -207,6 +217,19 @@ class PetIngredientChecker {
                 </div>
             `;
         }).join('');
+    }
+
+    makeUrlsClickable(text) {
+        // Regular expression to match URLs
+        const urlRegex = /(https?:\/\/[^\s,)]+)/g;
+        
+        return text.replace(urlRegex, (url) => {
+            // Clean up URL by removing trailing punctuation
+            const cleanUrl = url.replace(/[.,;:!?)]$/, '');
+            const trailingPunct = url.slice(cleanUrl.length);
+            
+            return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="source-link">${cleanUrl}</a>${trailingPunct}`;
+        });
     }
 
     capitalizeFirst(str) {
