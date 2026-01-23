@@ -219,17 +219,35 @@ class PetIngredientChecker {
         }).join('');
     }
 
-    makeUrlsClickable(text) {
-        // Regular expression to match URLs
-        const urlRegex = /(https?:\/\/[^\s,)]+)/g;
-        
-        return text.replace(urlRegex, (url) => {
-            // Clean up URL by removing trailing punctuation
-            const cleanUrl = url.replace(/[.,;:!?)]$/, '');
-            const trailingPunct = url.slice(cleanUrl.length);
-            
-            return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="source-link">${cleanUrl}</a>${trailingPunct}`;
-        });
+    makeUrlsClickable(sources) {
+        // Handle both string and array sources
+        if (Array.isArray(sources)) {
+            return sources.map(source => {
+                // Ensure source is a string
+                const sourceStr = String(source || '');
+                
+                // Check if source contains a URL
+                const urlMatch = sourceStr.match(/(https?:\/\/[^\s,)]+)/);
+                if (urlMatch) {
+                    const url = urlMatch[0];
+                    const cleanUrl = url.replace(/[.,;:!?)]$/, '');
+                    const description = sourceStr.replace(url, '').trim().replace(/^[:\-\s]+|[:\-\s]+$/g, '');
+                    return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="source-link">${description || cleanUrl}</a>`;
+                }
+                return sourceStr;
+            }).join('<br>');
+        } else if (typeof sources === 'string') {
+            // Handle string sources (legacy format)
+            const urlRegex = /(https?:\/\/[^\s,)]+)/g;
+            return sources.replace(urlRegex, (url) => {
+                const cleanUrl = url.replace(/[.,;:!?)]$/, '');
+                const trailingPunct = url.slice(cleanUrl.length);
+                return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="source-link">${cleanUrl}</a>${trailingPunct}`;
+            });
+        } else {
+            // Handle any other type by converting to string
+            return String(sources || 'No sources available');
+        }
     }
 
     capitalizeFirst(str) {
@@ -247,4 +265,53 @@ class PetIngredientChecker {
 // Initialize the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     new PetIngredientChecker();
+    
+    // Initialize dropdown functionality
+    const dropdownBtn = document.querySelector('.dropdown-btn');
+    const dropdownContent = document.querySelector('.dropdown-content');
+    
+    if (dropdownBtn && dropdownContent) {
+        // Toggle dropdown on button click
+        dropdownBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isVisible = dropdownContent.style.display === 'block';
+            dropdownContent.style.display = isVisible ? 'none' : 'block';
+            
+            // Update arrow direction
+            const arrow = dropdownBtn.querySelector('span:last-child');
+            if (arrow) {
+                arrow.textContent = isVisible ? '▼' : '▲';
+            }
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+            dropdownContent.style.display = 'none';
+            const arrow = dropdownBtn.querySelector('span:last-child');
+            if (arrow) {
+                arrow.textContent = '▼';
+            }
+        });
+        
+        // Add hover effects to dropdown items
+        const dropdownItems = dropdownContent.querySelectorAll('a');
+        dropdownItems.forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                item.style.background = '#f8f9fa';
+            });
+            item.addEventListener('mouseleave', () => {
+                item.style.background = 'white';
+            });
+        });
+        
+        // Add hover effect to dropdown button
+        dropdownBtn.addEventListener('mouseenter', () => {
+            dropdownBtn.style.background = '#e9ecef';
+            dropdownBtn.style.borderColor = '#adb5bd';
+        });
+        dropdownBtn.addEventListener('mouseleave', () => {
+            dropdownBtn.style.background = '#f8f9fa';
+            dropdownBtn.style.borderColor = '#dee2e6';
+        });
+    }
 });
