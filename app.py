@@ -43,13 +43,52 @@ genai_config = {
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
 
-# Check if GenAI is configured
+# Check if GenAI is configured - REQUIRED for operation
 genai_enabled = all([
     genai_config['research_agent_id'],
     genai_config['risk_agent_id'], 
     genai_config['factcheck_agent_id'],
     genai_config['access_token']
 ])
+
+# Validate configuration at startup
+def validate_genai_configuration():
+    """Validate that all required DigitalOcean GenAI configuration is present"""
+    missing_config = []
+    
+    required_configs = {
+        'DIGITALOCEAN_TOKEN': genai_config['access_token'],
+        'DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID': genai_config['research_agent_id'],
+        'DIGITALOCEAN_GENAI_RISK_AGENT_ID': genai_config['risk_agent_id'],
+        'DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID': genai_config['factcheck_agent_id'],
+        'DIGITALOCEAN_GENAI_INFERENCE_URL': genai_config['inference_url']
+    }
+    
+    for config_name, config_value in required_configs.items():
+        if not config_value:
+            missing_config.append(config_name)
+    
+    if missing_config:
+        error_msg = f"""
+🚨 CONFIGURATION ERROR: Pet Ingredient Safety Checker requires DigitalOcean GenAI configuration.
+
+Missing required environment variables:
+{chr(10).join(f'  - {config}' for config in missing_config)}
+
+Please set these environment variables in your .env file or environment.
+See .env.example for the required configuration template.
+
+This application is AI-powered and cannot operate without proper GenAI configuration.
+        """.strip()
+        
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    logger.info("✅ DigitalOcean GenAI configuration validated successfully")
+
+# Validate configuration at startup
+if not genai_enabled:
+    validate_genai_configuration()
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
@@ -264,10 +303,6 @@ class RealResearchAgent:
     async def _search_web(self, query):
         """Use DigitalOcean GenAI agent for REAL web research"""
         
-        if not genai_enabled:
-            logger.warning("DigitalOcean GenAI not configured - using fallback research")
-            return self._fallback_research(query)
-        
         try:
             # Call DigitalOcean GenAI Research Agent with enhanced research prompt
             headers = {
@@ -336,20 +371,11 @@ Provide detailed, evidence-based information with specific source citations and 
                 }
             else:
                 logger.error(f"GenAI API error: {response.status_code} - {response.text}")
-                return self._fallback_research(query)
+                raise Exception(f"Research Agent API error: {response.status_code}")
                 
         except Exception as e:
             logger.error(f"DigitalOcean GenAI research failed: {e}")
-            return self._fallback_research(query)
-    
-    def _fallback_research(self, query):
-        """Fallback research when Gradient AI is unavailable"""
-        return {
-            'query': query,
-            'content': f"Research needed for: {query}. Please consult veterinary sources like ASPCA Animal Poison Control for accurate information.",
-            'source': 'Fallback research',
-            'timestamp': datetime.utcnow().isoformat()
-        }
+            raise Exception(f"Research Agent temporarily unavailable: {e}")
 
 class RealRiskAnalysisAgent:
     """Agent that uses AI to analyze risk levels"""
@@ -364,10 +390,6 @@ class RealRiskAnalysisAgent:
         
         if not research_content:
             return 'medium'  # Default to medium risk if no research data
-        
-        if not genai_enabled:
-            logger.warning("DigitalOcean GenAI not configured - using fallback risk analysis")
-            return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
         
         try:
             # Call DigitalOcean GenAI Risk Analysis Agent
@@ -427,26 +449,11 @@ Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
                 return risk_mapping.get(risk_response, 'medium')
             else:
                 logger.error(f"GenAI Risk API error: {response.status_code} - {response.text}")
-                return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
+                raise Exception(f"Risk Analysis Agent API error: {response.status_code}")
                 
         except Exception as e:
             logger.error(f"DigitalOcean GenAI risk analysis failed: {e}")
-            return self._fallback_risk_analysis(research_data['ingredient'], pet_type)
-    
-    def _fallback_risk_analysis(self, ingredient, pet_type):
-        """Fallback risk analysis when Gradient AI is unavailable"""
-        # Basic safety knowledge for common ingredients
-        high_risk = ['chocolate', 'grapes', 'raisins', 'onion', 'garlic', 'xylitol', 'caffeine', 'alcohol']
-        safe_ingredients = ['rice', 'chicken', 'carrots', 'pumpkin', 'sweet potato']
-        
-        ingredient_lower = ingredient.lower()
-        
-        if any(risky in ingredient_lower for risky in high_risk):
-            return 'high'
-        elif any(safe in ingredient_lower for safe in safe_ingredients):
-            return 'no'
-        else:
-            return 'medium'
+            raise Exception(f"Risk Analysis Agent temporarily unavailable: {e}")
 
 class RealFactCheckerAgent:
     """Agent that fact-checks and validates findings"""
@@ -458,10 +465,6 @@ class RealFactCheckerAgent:
             result['content'] for result in research_data['search_results'] 
             if result and 'content' in result
         ])
-        
-        if not genai_enabled:
-            logger.warning("DigitalOcean GenAI not configured - using fallback fact checking")
-            return self._fallback_fact_check(research_data, risk_level, pet_type)
         
         try:
             # Call DigitalOcean GenAI Fact Checker Agent
@@ -529,11 +532,11 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
                 return research_data
             else:
                 logger.error(f"GenAI Fact Check API error: {response.status_code} - {response.text}")
-                return self._fallback_fact_check(research_data, risk_level, pet_type)
+                raise Exception(f"Fact Checker Agent API error: {response.status_code}")
                 
         except Exception as e:
             logger.error(f"DigitalOcean GenAI fact checking failed: {e}")
-            return self._fallback_fact_check(research_data, risk_level, pet_type)
+            raise Exception(f"Fact Checker Agent temporarily unavailable: {e}")
     
     def _fallback_fact_check(self, research_data, risk_level, pet_type):
         """Enhanced fallback fact checking with detailed ingredient-specific information"""
@@ -804,19 +807,8 @@ def evaluate_ingredients():
         
         logger.info(f"🚀 Processing request with DigitalOcean GenAI: {len(ingredients)} ingredients for {pet_type}")
         
-        # Check if we have DigitalOcean GenAI configured
-        if not genai_enabled:
-            logger.warning("DigitalOcean GenAI not configured - using fallback mode")
-            return jsonify({
-                'success': True,
-                'results': _fallback_analysis(ingredients, pet_type),
-                'pet_type': pet_type,
-                'category': category,
-                'processed_at': datetime.utcnow().isoformat(),
-                'mode': 'fallback'
-            })
-        
-        # Process through real DigitalOcean GenAI multi-agent system
+        # Process through DigitalOcean GenAI multi-agent system
+        # Configuration is validated at startup, so we know GenAI is available
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
@@ -828,44 +820,14 @@ def evaluate_ingredients():
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'digitalocean_genai_powered'
+            'mode': 'digitalocean_genai_powered',
+            'ai_powered': True
         })
         
     except Exception as e:
         logger.error(f"Error in evaluate_ingredients: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
-def _fallback_analysis(ingredients, pet_type):
-    """Fallback analysis when API keys are not available"""
-    results = {'high': [], 'medium': [], 'low': [], 'no': []}
-    
-    # Basic safety knowledge for common ingredients
-    high_risk = ['chocolate', 'grapes', 'raisins', 'onion', 'garlic', 'xylitol', 'caffeine', 'alcohol']
-    safe_ingredients = ['rice', 'chicken', 'carrots', 'pumpkin', 'sweet potato']
-    
-    for ingredient in ingredients:
-        ingredient_lower = ingredient.lower()
-        
-        if any(risky in ingredient_lower for risky in high_risk):
-            risk_level = 'high'
-            justification = f"{ingredient.capitalize()} is known to be toxic to {pet_type}s and should be avoided completely."
-        elif any(safe in ingredient_lower for safe in safe_ingredients):
-            risk_level = 'no'
-            justification = f"{ingredient.capitalize()} is generally safe for {pet_type}s when properly prepared."
-        else:
-            risk_level = 'medium'
-            justification = f"{ingredient.capitalize()} requires further research. Consult your veterinarian for safety information."
-        
-        results[risk_level].append({
-            'name': ingredient,
-            'risk_level': risk_level,
-            'justification': justification,
-            'sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control',
-            'cached': False,
-            'ai_powered': False
-        })
-    
-    return results
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
