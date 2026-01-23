@@ -281,44 +281,6 @@ header p {
     font-style: normal;
 }
 
-.source-link {
-    color: var(--secondary-blue);
-    text-decoration: none;
-    font-weight: 500;
-    transition: color 0.3s ease;
-    border-bottom: 1px solid transparent;
-}
-
-.source-link:hover {
-    color: var(--primary-blue);
-    border-bottom-color: var(--primary-blue);
-    text-decoration: none;
-}
-
-.source-link:visited {
-    color: #6a4c93;
-}
-
-.cached-indicator,
-.live-indicator {
-    display: inline-block;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 500;
-    margin-top: 8px;
-}
-
-.cached-indicator {
-    background: #e3f2fd;
-    color: var(--primary-blue);
-}
-
-.live-indicator {
-    background: #e8f5e8;
-    color: var(--accent-green);
-}
-
 .empty-category {
     padding: 20px;
     text-align: center;
