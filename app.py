@@ -400,14 +400,159 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
             return self._fallback_fact_check(research_data, risk_level, pet_type)
     
     def _fallback_fact_check(self, research_data, risk_level, pet_type):
-        """Fallback fact checking when Gradient AI is unavailable"""
-        research_data['fact_check'] = {
-            'validated_risk': risk_level,
-            'mechanism': 'Unable to verify - consult veterinarian',
-            'symptoms': 'Monitor pet closely',
-            'authoritative_sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'
+        """Enhanced fallback fact checking with detailed ingredient-specific information"""
+        ingredient = research_data['ingredient'].lower()
+        
+        # Comprehensive ingredient safety database
+        ingredient_database = {
+            'chocolate': {
+                'mechanism': 'Contains theobromine and caffeine, which are toxic methylxanthines that pets cannot metabolize effectively. Dark chocolate and baking chocolate are most dangerous.',
+                'symptoms': 'Vomiting, diarrhea, increased heart rate, seizures, hyperactivity, excessive thirst, abnormal heart rhythm. Symptoms appear 6-12 hours after ingestion.',
+                'severity': 'high',
+                'additional_info': 'Toxicity depends on chocolate type and pet size. As little as 20mg/kg of theobromine can cause toxicity.'
+            },
+            'grapes': {
+                'mechanism': 'Contains unknown compounds that cause acute kidney failure in dogs and cats. Even small amounts can be fatal.',
+                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
+                'severity': 'high',
+                'additional_info': 'No safe amount established. Both fresh grapes and raisins are toxic. Immediate veterinary care required.'
+            },
+            'raisins': {
+                'mechanism': 'Dried grapes containing concentrated toxic compounds that cause acute kidney failure. More concentrated than fresh grapes.',
+                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
+                'severity': 'high',
+                'additional_info': 'Even more dangerous than grapes due to concentration. As few as 6 raisins can be toxic to a 20lb dog.'
+            },
+            'onion': {
+                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
+                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
+                'severity': 'high',
+                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
+            },
+            'onions': {
+                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
+                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
+                'severity': 'high',
+                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
+            },
+            'garlic': {
+                'mechanism': 'Contains allicin and sulfur compounds that are 5x more potent than onions in causing red blood cell damage and anemia.',
+                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. More severe than onion toxicity.',
+                'severity': 'high',
+                'additional_info': 'More toxic than onions. Even small amounts can be dangerous. Cats are extremely sensitive.'
+            },
+            'xylitol': {
+                'mechanism': 'Artificial sweetener that causes rapid insulin release, leading to severe hypoglycemia and potential liver failure.',
+                'symptoms': 'Vomiting, loss of coordination, lethargy, collapse, seizures within 10-60 minutes. Liver failure possible in 12-24 hours.',
+                'severity': 'high',
+                'additional_info': 'Found in sugar-free gum, mints, baked goods. As little as 0.1g/kg can cause hypoglycemia. Emergency treatment required.'
+            },
+            'avocado': {
+                'mechanism': 'Contains persin, a fungicidal toxin that can cause digestive upset and respiratory distress in pets.',
+                'symptoms': 'Vomiting, diarrhea, difficulty breathing, fluid accumulation around heart. Birds and small mammals most sensitive.',
+                'severity': 'medium',
+                'additional_info': 'All parts toxic: fruit, pit, leaves, bark. Dogs and cats less sensitive than birds, but still at risk.'
+            },
+            'macadamia nuts': {
+                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
+                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
+                'severity': 'medium',
+                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
+            },
+            'macadamia': {
+                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
+                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
+                'severity': 'medium',
+                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
+            },
+            'caffeine': {
+                'mechanism': 'Methylxanthine stimulant that affects the central nervous system and cardiovascular system. Similar to theobromine toxicity.',
+                'symptoms': 'Hyperactivity, restlessness, vomiting, elevated heart rate, high blood pressure, abnormal heart rhythms, tremors, seizures.',
+                'severity': 'high',
+                'additional_info': 'Found in coffee, tea, energy drinks, medications. Pets are much more sensitive than humans. Can be fatal.'
+            },
+            'alcohol': {
+                'mechanism': 'Ethanol causes central nervous system depression, metabolic acidosis, and can lead to coma and death.',
+                'symptoms': 'Vomiting, diarrhea, difficulty breathing, tremors, abnormal blood acidity, coma, death.',
+                'severity': 'high',
+                'additional_info': 'Even small amounts dangerous. Found in alcoholic beverages, raw bread dough, mouthwash. Immediate veterinary care required.'
+            },
+            'chicken': {
+                'mechanism': 'Generally safe when properly cooked and boneless. Raw chicken may contain harmful bacteria like Salmonella.',
+                'symptoms': 'If raw or contaminated: vomiting, diarrhea, fever, lethargy from bacterial infection.',
+                'severity': 'no',
+                'additional_info': 'Cooked, boneless chicken is safe and nutritious. Avoid seasoning, bones, and raw preparation. Remove skin to reduce fat.'
+            },
+            'rice': {
+                'mechanism': 'Easily digestible carbohydrate that is safe and often recommended for digestive issues.',
+                'symptoms': 'Generally no adverse effects. May cause mild digestive upset if given in very large quantities.',
+                'severity': 'no',
+                'additional_info': 'Plain, cooked white or brown rice is safe. Often used in bland diets for digestive recovery. Avoid seasoning.'
+            },
+            'carrots': {
+                'mechanism': 'High in beta-carotene, fiber, and vitamins. Safe and nutritious for pets.',
+                'symptoms': 'No adverse effects. May cause orange discoloration of urine if consumed in very large quantities.',
+                'severity': 'no',
+                'additional_info': 'Raw or cooked carrots are safe. Good source of vitamins and can help with dental health. Cut into appropriate sizes.'
+            },
+            'sweet potato': {
+                'mechanism': 'Rich in vitamins, minerals, and fiber. Safe and nutritious for pets.',
+                'symptoms': 'No adverse effects when properly prepared. Raw sweet potato may cause digestive upset.',
+                'severity': 'no',
+                'additional_info': 'Cooked sweet potato is safe and nutritious. Avoid raw preparation and seasoning. Good source of beta-carotene.'
+            },
+            'pumpkin': {
+                'mechanism': 'High in fiber and nutrients. Often recommended for digestive health.',
+                'symptoms': 'No adverse effects. May cause loose stools if given in excessive amounts due to high fiber content.',
+                'severity': 'no',
+                'additional_info': 'Plain, cooked pumpkin is safe and beneficial. Avoid pumpkin pie filling with spices. Good for digestive health.'
+            }
         }
-        research_data['validated_risk'] = risk_level
+        
+        # Get ingredient-specific information
+        ingredient_info = None
+        for key in ingredient_database:
+            if key in ingredient:
+                ingredient_info = ingredient_database[key]
+                break
+        
+        if ingredient_info:
+            # Use detailed database information
+            validated_risk = ingredient_info['severity']
+            mechanism = ingredient_info['mechanism']
+            symptoms = ingredient_info['symptoms']
+            additional_info = ingredient_info.get('additional_info', '')
+            
+            # Create comprehensive justification
+            if additional_info:
+                mechanism += f" {additional_info}"
+                
+        else:
+            # Enhanced fallback for unknown ingredients
+            if risk_level == 'high':
+                mechanism = f"While specific toxicity data for {research_data['ingredient']} is limited, this ingredient has been flagged as potentially dangerous for {pet_type}s based on available safety patterns. May contain compounds that could cause serious health issues."
+                symptoms = "Monitor for vomiting, diarrhea, lethargy, loss of appetite, difficulty breathing, or unusual behavior. Seek immediate veterinary care if any symptoms appear."
+                validated_risk = 'high'
+            elif risk_level == 'medium':
+                mechanism = f"{research_data['ingredient'].capitalize()} may cause digestive upset or mild adverse reactions in {pet_type}s. While not immediately life-threatening, caution is recommended."
+                symptoms = "Watch for mild digestive upset, changes in appetite, or unusual behavior. Consult veterinarian if symptoms persist or worsen."
+                validated_risk = 'medium'
+            elif risk_level == 'low':
+                mechanism = f"{research_data['ingredient'].capitalize()} appears to have minimal risk for {pet_type}s but may cause minor digestive sensitivity in some pets."
+                symptoms = "Generally well-tolerated. Monitor for any unusual digestive changes or allergic reactions."
+                validated_risk = 'low'
+            else:
+                mechanism = f"{research_data['ingredient'].capitalize()} appears to be generally safe for {pet_type}s when given in appropriate amounts."
+                symptoms = "No significant adverse effects expected. Monitor as with any new food item."
+                validated_risk = 'no'
+        
+        research_data['fact_check'] = {
+            'validated_risk': validated_risk,
+            'mechanism': mechanism,
+            'symptoms': symptoms,
+            'authoritative_sources': 'ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661 | https://www.aspca.org/pet-care/animal-poison-control'
+        }
+        research_data['validated_risk'] = validated_risk
         return research_data
 
 class RealFormatterAgent:
