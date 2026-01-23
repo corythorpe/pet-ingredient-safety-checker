@@ -7,7 +7,7 @@ services:
   dockerfile_path: Dockerfile
   source_dir: /
   github:
-    repo: cthorpe/pet-ingredient-safety-checker
+    repo: corythorpe/pet-ingredient-safety-checker
     branch: main
   instance_count: 1
   instance_size_slug: basic-xxs
