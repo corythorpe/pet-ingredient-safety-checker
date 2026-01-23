@@ -16,19 +16,33 @@ services:
   envs:
   - key: FLASK_ENV
     value: production
-  - key: GRADIENT_ACCESS_TOKEN
+  - key: PORT
+    value: "8080"
+  - key: DIGITALOCEAN_TOKEN
     scope: RUN_TIME
     type: SECRET
-  - key: GRADIENT_WORKSPACE_ID
+  - key: DIGITALOCEAN_GENAI_PROJECT_ID
     scope: RUN_TIME
     type: SECRET
-  - key: GRADIENT_RESEARCH_AGENT_ID
+  - key: DIGITALOCEAN_GENAI_MODEL_ID
     scope: RUN_TIME
     type: SECRET
-  - key: GRADIENT_RISK_AGENT_ID
+  - key: DIGITALOCEAN_GENAI_REGION
     scope: RUN_TIME
     type: SECRET
-  - key: GRADIENT_FACTCHECK_AGENT_ID
+  - key: DIGITALOCEAN_GENAI_INFERENCE_URL
+    scope: RUN_TIME
+    type: SECRET
+  - key: DIGITALOCEAN_GENAI_STREAM_URL
+    scope: RUN_TIME
+    type: SECRET
+  - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
+    scope: RUN_TIME
+    type: SECRET
+  - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
+    scope: RUN_TIME
+    type: SECRET
+  - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
     scope: RUN_TIME
     type: SECRET
 databases:
