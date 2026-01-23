@@ -8,12 +8,15 @@ from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import asyncio
 import aiohttp
 import requests
 import re
+import hashlib
+import pickle
+from pathlib import Path
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -48,6 +51,127 @@ genai_enabled = all([
     genai_config['access_token']
 ])
 
+class IngredientCache:
+    """File-based cache for ingredient lookups with 15-day expiration"""
+    
+    def __init__(self, cache_dir='cache'):
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_duration = timedelta(days=15)
+        logger.info(f"📋 Ingredient cache initialized: {self.cache_dir.absolute()}")
+    
+    def _get_cache_key(self, ingredient, pet_type):
+        """Generate a unique cache key for ingredient + pet type combination"""
+        key_string = f"{ingredient.lower().strip()}_{pet_type.lower()}"
+        return hashlib.md5(key_string.encode()).hexdigest()
+    
+    def _get_cache_path(self, cache_key):
+        """Get the file path for a cache key"""
+        return self.cache_dir / f"{cache_key}.pkl"
+    
+    def get(self, ingredient, pet_type):
+        """Retrieve cached result if available and not expired"""
+        cache_key = self._get_cache_key(ingredient, pet_type)
+        cache_path = self._get_cache_path(cache_key)
+        
+        if not cache_path.exists():
+            return None
+        
+        try:
+            with open(cache_path, 'rb') as f:
+                cached_data = pickle.load(f)
+            
+            # Check if cache is expired
+            cached_time = datetime.fromisoformat(cached_data['timestamp'])
+            if datetime.now() - cached_time > self.cache_duration:
+                logger.info(f"🗑️ Cache expired for {ingredient} ({pet_type})")
+                cache_path.unlink()  # Delete expired cache
+                return None
+            
+            logger.info(f"📋 Cache hit for {ingredient} ({pet_type})")
+            return cached_data['result']
+            
+        except Exception as e:
+            logger.warning(f"Cache read error for {ingredient}: {e}")
+            # Delete corrupted cache file
+            try:
+                cache_path.unlink()
+            except:
+                pass
+            return None
+    
+    def set(self, ingredient, pet_type, result):
+        """Store result in cache"""
+        cache_key = self._get_cache_key(ingredient, pet_type)
+        cache_path = self._get_cache_path(cache_key)
+        
+        try:
+            cached_data = {
+                'ingredient': ingredient,
+                'pet_type': pet_type,
+                'result': result,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            with open(cache_path, 'wb') as f:
+                pickle.dump(cached_data, f)
+            
+            logger.info(f"💾 Cached result for {ingredient} ({pet_type})")
+            
+        except Exception as e:
+            logger.warning(f"Cache write error for {ingredient}: {e}")
+    
+    def cleanup_expired(self):
+        """Remove expired cache files"""
+        removed_count = 0
+        for cache_file in self.cache_dir.glob('*.pkl'):
+            try:
+                with open(cache_file, 'rb') as f:
+                    cached_data = pickle.load(f)
+                
+                cached_time = datetime.fromisoformat(cached_data['timestamp'])
+                if datetime.now() - cached_time > self.cache_duration:
+                    cache_file.unlink()
+                    removed_count += 1
+                    
+            except Exception as e:
+                # Remove corrupted files
+                try:
+                    cache_file.unlink()
+                    removed_count += 1
+                except:
+                    pass
+        
+        if removed_count > 0:
+            logger.info(f"🧹 Cleaned up {removed_count} expired cache files")
+    
+    def get_cache_stats(self):
+        """Get cache statistics"""
+        cache_files = list(self.cache_dir.glob('*.pkl'))
+        total_files = len(cache_files)
+        expired_files = 0
+        
+        for cache_file in cache_files:
+            try:
+                with open(cache_file, 'rb') as f:
+                    cached_data = pickle.load(f)
+                
+                cached_time = datetime.fromisoformat(cached_data['timestamp'])
+                if datetime.now() - cached_time > self.cache_duration:
+                    expired_files += 1
+            except:
+                expired_files += 1
+        
+        return {
+            'total_cached_ingredients': total_files,
+            'expired_entries': expired_files,
+            'active_entries': total_files - expired_files,
+            'cache_directory': str(self.cache_dir.absolute())
+        }
+
+# Initialize cache
+ingredient_cache = IngredientCache()
+
 class RealMultiAgentSystem:
     """Real multi-agent system using Gradient AI and web research"""
     
@@ -58,40 +182,52 @@ class RealMultiAgentSystem:
         self.formatter_agent = RealFormatterAgent()
     
     async def process_ingredients(self, ingredients, pet_type, category):
-        """Process ingredients through the real multi-agent pipeline"""
+        """Process ingredients through the real multi-agent pipeline with caching"""
         logger.info(f"🤖 Real Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
         
         results = {'high': [], 'medium': [], 'low': [], 'no': []}
         
+        # Clean up expired cache entries at the start
+        ingredient_cache.cleanup_expired()
+        
         for ingredient in ingredients:
             try:
-                # Research Agent: Conduct real web research
+                # Check cache first
+                cached_result = ingredient_cache.get(ingredient, pet_type)
+                if cached_result:
+                    # Use cached result
+                    cached_result['cached'] = True
+                    results[cached_result['risk_level']].append(cached_result)
+                    continue
+                
+                # Not in cache - process through agents
                 logger.info(f"🔍 Research Agent: Researching {ingredient} online")
                 research_data = await self.research_agent.research(ingredient, pet_type)
                 
-                # Risk Analysis Agent: AI-powered risk categorization
                 logger.info(f"⚖️ Risk Analysis Agent: AI analyzing {ingredient}")
                 risk_level = await self.risk_analysis_agent.analyze(research_data, pet_type)
                 
-                # Fact Checker Agent: Validate findings with additional sources
                 logger.info(f"✅ Fact Checker Agent: Validating {ingredient}")
                 validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
                 
-                # Formatter Agent: Structure output
                 logger.info(f"📝 Formatter Agent: Formatting {ingredient}")
                 formatted_result = self.formatter_agent.format(ingredient, validated_data, risk_level)
+                
+                # Cache the result for future use
+                ingredient_cache.set(ingredient, pet_type, formatted_result)
                 
                 results[risk_level].append(formatted_result)
                 
             except Exception as e:
                 logger.error(f"Error processing {ingredient}: {e}")
-                results['medium'].append({
+                error_result = {
                     'name': ingredient,
                     'risk_level': 'medium',
                     'justification': f"Unable to fully research {ingredient} due to technical issues. Please consult your veterinarian for safety information.",
                     'sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control',
                     'cached': False
-                })
+                }
+                results['medium'].append(error_result)
         
         return results
 
@@ -733,7 +869,9 @@ def _fallback_analysis(ingredients, pet_type):
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with cache statistics"""
+    cache_stats = ingredient_cache.get_cache_stats()
+    
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
@@ -744,6 +882,7 @@ def health_check():
             'formatter_agent': 'active'
         },
         'digitalocean_genai_enabled': genai_enabled,
+        'cache_stats': cache_stats,
         'genai_config': {
             'access_token_configured': bool(genai_config['access_token']),
             'research_agent_id': genai_config['research_agent_id'],

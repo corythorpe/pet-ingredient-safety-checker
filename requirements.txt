@@ -1,21 +1,12 @@
-# Pet Ingredient Safety Checker - Backend Dependencies
+# Pet Ingredient Safety Checker - Production Dependencies
 
 # Web Framework
 Flask==2.3.3
 Flask-CORS==4.0.0
 gunicorn==21.2.0
 
-# Database & Caching
-SQLAlchemy==2.0.23
-redis==5.0.1
-Flask-Caching==2.1.0
-
-# AI and API
-gradientai==1.4.0
+# API and HTTP
 requests==2.31.0
-
-# Web Scraping
-beautifulsoup4==4.12.2
 aiohttp==3.9.1
 
 # Utilities
