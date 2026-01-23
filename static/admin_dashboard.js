@@ -430,6 +430,34 @@ class AdminDashboard {
         `;
     }
 
+    formatSources(sources) {
+        // Handle both string and array sources
+        if (Array.isArray(sources)) {
+            return sources.map(source => {
+                // Check if source contains a URL
+                const urlMatch = source.match(/(https?:\/\/[^\s,)]+)/);
+                if (urlMatch) {
+                    const url = urlMatch[0];
+                    const cleanUrl = url.replace(/[.,;:!?)]$/, '');
+                    const description = source.replace(url, '').trim().replace(/^[:\-\s]+|[:\-\s]+$/g, '');
+                    return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="source-link">${description || cleanUrl}</a>`;
+                }
+                return source;
+            }).join('<br>');
+        } else if (sources && sources.includes('http')) {
+            // Handle string sources with URLs
+            const urlRegex = /(https?:\/\/[^\s,)]+)/g;
+            return sources.replace(urlRegex, (url) => {
+                const cleanUrl = url.replace(/[.,;:!?)]$/, '');
+                const trailingPunct = url.slice(cleanUrl.length);
+                return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="source-link">${cleanUrl}</a>${trailingPunct}`;
+            });
+        } else {
+            // Fallback for sources without URLs
+            return sources || 'ASPCA Animal Poison Control, Pet Poison Helpline, Veterinary Toxicology Database';
+        }
+    }
+
     displayResults(data, processingTime) {
         const resultsSection = document.getElementById('resultsSection');
         const resultsGrid = document.getElementById('resultsGrid');
@@ -491,9 +519,7 @@ class AdminDashboard {
                     </div>
                     <div class="ingredient-sources">
                         <strong>Sources:</strong> 
-                        ${ingredient.sources && ingredient.sources.includes('http') ? 
-                            `<a href="${ingredient.sources}" target="_blank">View Authoritative Source</a>` : 
-                            ingredient.sources || 'ASPCA Animal Poison Control, Pet Poison Helpline, Veterinary Toxicology Database'}
+                        ${this.formatSources(ingredient.sources)}
                     </div>
                 </div>
             `).join('');

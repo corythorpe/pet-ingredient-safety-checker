@@ -449,6 +449,16 @@ def index():
     """Serve the main application"""
     return render_template('index.html')
 
+@app.route('/admin')
+def admin_dashboard():
+    """Serve the admin dashboard"""
+    return render_template('admin_dashboard.html')
+
+@app.route('/how-it-works')
+def how_it_works():
+    """Serve the how it works dashboard"""
+    return render_template('how_it_works.html')
+
 @app.route('/api/evaluate', methods=['POST'])
 def evaluate_ingredients():
     """API endpoint to evaluate ingredients"""
