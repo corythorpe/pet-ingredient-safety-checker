@@ -4,13 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pet Ingredient Safety Checker</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🐾 Pet Ingredient Safety Checker</h1>
             <p>Get professional risk assessments for pet food and medication ingredients</p>
+            
+            <div class="navigation" style="margin-top: 20px; display: flex; gap: 15px; justify-content: center; align-items: center;">
+                <!-- Dropdown menu for additional features -->
+                <div class="dropdown" style="position: relative;">
+                    <button class="dropdown-btn" style="padding: 8px 16px; background: #f8f9fa; color: #495057; border: 2px solid #dee2e6; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s ease; display: flex; align-items: center; gap: 5px;">
+                        ⚙️ Tools & Info
+                        <span style="font-size: 0.8em;">▼</span>
+                    </button>
+                    <div class="dropdown-content" style="display: none; position: absolute; top: 100%; left: 0; background: white; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); border-radius: 6px; z-index: 1000; border: 1px solid #dee2e6; margin-top: 5px;">
+                        <a href="/admin" style="display: block; padding: 12px 16px; text-decoration: none; color: #495057; border-bottom: 1px solid #f1f3f4; transition: background 0.3s ease;">
+                            🔧 Admin Dashboard
+                            <div style="font-size: 0.8em; color: #6c757d; margin-top: 2px;">Monitor system performance</div>
+                        </a>
+                        <a href="/how-it-works" style="display: block; padding: 12px 16px; text-decoration: none; color: #495057; transition: background 0.3s ease;">
+                            📚 How It Works
+                            <div style="font-size: 0.8em; color: #6c757d; margin-top: 2px;">Learn about our AI agents</div>
+                        </a>
+                    </div>
+                </div>
+            </div>
         </header>
 
         <main class="input-section">
@@ -23,22 +43,13 @@
                     </select>
                 </div>
 
-                <div class="category-selector">
-                    <label for="ingredientCategory">What type of ingredients are you checking?</label>
-                    <select id="ingredientCategory" name="ingredientCategory">
-                        <option value="food">🍖 Food Ingredients</option>
-                        <option value="medication">💊 Medication Ingredients</option>
-                        <option value="mixed">🔍 Mixed (Food & Medication)</option>
-                    </select>
-                </div>
-
                 <div class="ingredients-input">
-                    <label for="ingredients">Enter ingredients (one per line or comma-separated):</label>
+                    <label for="ingredients">Enter ingredients (any format - we'll find them automatically):</label>
                     <textarea 
                         id="ingredients" 
                         name="ingredients" 
-                        placeholder="Food Examples:&#10;chocolate&#10;onions&#10;garlic&#10;chicken&#10;rice&#10;&#10;Medication Examples:&#10;ibuprofen&#10;acetaminophen&#10;aspirin&#10;xylitol&#10;caffeine"
-                        rows="10"
+                        placeholder="Paste any text containing ingredients - we'll find them automatically!&#10;&#10;Examples:&#10;• My dog ate chocolate and some grapes&#10;• Contains chicken, rice, garlic powder&#10;• Ibuprofen 200mg tablets for pain&#10;• Made with beef, onions, and xylitol&#10;&#10;No special formatting needed - just paste any text!"
+                        rows="8"
                     ></textarea>
                 </div>
 
@@ -60,6 +71,6 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="static/script.js"></script>
 </body>
 </html>
