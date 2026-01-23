@@ -403,6 +403,33 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
         """Enhanced fallback fact checking with detailed ingredient-specific information"""
         ingredient = research_data['ingredient'].lower()
         
+        # Generate query-specific source URLs
+        def generate_source_urls(ingredient_name, pet_type):
+            """Generate multiple query-specific source URLs"""
+            sources = []
+            
+            # ASPCA search URL
+            aspca_query = f"{ingredient_name} {pet_type} toxic poisonous"
+            aspca_url = f"https://www.aspca.org/search?query={aspca_query.replace(' ', '+')}"
+            sources.append(f"ASPCA Search Results for '{ingredient_name}': {aspca_url}")
+            
+            # Pet Poison Helpline search
+            pph_query = f"{ingredient_name} {pet_type}"
+            pph_url = f"https://www.petpoisonhelpline.com/search/?q={pph_query.replace(' ', '+')}"
+            sources.append(f"Pet Poison Helpline Search for '{ingredient_name}': {pph_url}")
+            
+            # VCA Animal Hospitals search
+            vca_query = f"{ingredient_name} toxic {pet_type}"
+            vca_url = f"https://vcahospitals.com/search?q={vca_query.replace(' ', '+')}"
+            sources.append(f"VCA Animal Hospitals Search for '{ingredient_name}': {vca_url}")
+            
+            # PetMD search
+            petmd_query = f"{ingredient_name} {pet_type} safe toxic"
+            petmd_url = f"https://www.petmd.com/search?query={petmd_query.replace(' ', '+')}"
+            sources.append(f"PetMD Search for '{ingredient_name}': {petmd_url}")
+            
+            return sources
+        
         # Comprehensive ingredient safety database
         ingredient_database = {
             'chocolate': {
@@ -546,11 +573,15 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
                 symptoms = "No significant adverse effects expected. Monitor as with any new food item."
                 validated_risk = 'no'
         
+        # Generate multiple query-specific sources
+        query_specific_sources = generate_source_urls(research_data['ingredient'], pet_type)
+        
         research_data['fact_check'] = {
             'validated_risk': validated_risk,
             'mechanism': mechanism,
             'symptoms': symptoms,
-            'authoritative_sources': 'ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661 | https://www.aspca.org/pet-care/animal-poison-control'
+            'authoritative_sources': query_specific_sources,
+            'emergency_contacts': 'ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661'
         }
         research_data['validated_risk'] = validated_risk
         return research_data
@@ -589,8 +620,8 @@ class RealFormatterAgent:
         
         justification = ' '.join(justification_parts)
         
-        # Get authoritative sources
-        sources = fact_check.get('authoritative_sources', 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control')
+        # Get authoritative sources - check both possible keys
+        sources = fact_check.get('authoritative_sources', fact_check.get('sources', 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'))
         
         return {
             'name': ingredient,
