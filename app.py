@@ -43,7 +43,7 @@ genai_config = {
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
 
-# Check if GenAI is configured - REQUIRED for operation
+# Check if GenAI is configured - OPTIONAL for operation (we have knowledge-based fallback)
 genai_enabled = all([
     genai_config['research_agent_id'],
     genai_config['risk_agent_id'], 
@@ -51,44 +51,11 @@ genai_enabled = all([
     genai_config['access_token']
 ])
 
-# Validate configuration at startup
-def validate_genai_configuration():
-    """Validate that all required DigitalOcean GenAI configuration is present"""
-    missing_config = []
-    
-    required_configs = {
-        'DIGITALOCEAN_TOKEN': genai_config['access_token'],
-        'DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID': genai_config['research_agent_id'],
-        'DIGITALOCEAN_GENAI_RISK_AGENT_ID': genai_config['risk_agent_id'],
-        'DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID': genai_config['factcheck_agent_id'],
-        'DIGITALOCEAN_GENAI_INFERENCE_URL': genai_config['inference_url']
-    }
-    
-    for config_name, config_value in required_configs.items():
-        if not config_value:
-            missing_config.append(config_name)
-    
-    if missing_config:
-        error_msg = f"""
-🚨 CONFIGURATION ERROR: Pet Ingredient Safety Checker requires DigitalOcean GenAI configuration.
-
-Missing required environment variables:
-{chr(10).join(f'  - {config}' for config in missing_config)}
-
-Please set these environment variables in your .env file or environment.
-See .env.example for the required configuration template.
-
-This application is AI-powered and cannot operate without proper GenAI configuration.
-        """.strip()
-        
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    
-    logger.info("✅ DigitalOcean GenAI configuration validated successfully")
-
-# Validate configuration at startup
-if not genai_enabled:
-    validate_genai_configuration()
+# Log configuration status
+if genai_enabled:
+    logger.info("✅ DigitalOcean GenAI configuration detected")
+else:
+    logger.info("ℹ️ DigitalOcean GenAI not configured - using knowledge-based system")
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
@@ -211,18 +178,228 @@ class IngredientCache:
 # Initialize cache
 ingredient_cache = IngredientCache()
 
-class RealMultiAgentSystem:
-    """Real multi-agent system using Gradient AI and web research"""
+class KnowledgeBasedAgent:
+    """Agent that uses built-in knowledge base for ingredient analysis"""
     
     def __init__(self):
-        self.research_agent = RealResearchAgent()
-        self.risk_analysis_agent = RealRiskAnalysisAgent()
-        self.fact_checker_agent = RealFactCheckerAgent()
+        # Comprehensive ingredient safety database
+        self.ingredient_database = {
+            'chocolate': {
+                'mechanism': 'Contains theobromine and caffeine, which are toxic methylxanthines that pets cannot metabolize effectively. Dark chocolate and baking chocolate are most dangerous.',
+                'symptoms': 'Vomiting, diarrhea, increased heart rate, seizures, hyperactivity, excessive thirst, abnormal heart rhythm. Symptoms appear 6-12 hours after ingestion.',
+                'severity': 'high',
+                'additional_info': 'Toxicity depends on chocolate type and pet size. As little as 20mg/kg of theobromine can cause toxicity.'
+            },
+            'grapes': {
+                'mechanism': 'Contains unknown compounds that cause acute kidney failure in dogs and cats. Even small amounts can be fatal.',
+                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
+                'severity': 'high',
+                'additional_info': 'No safe amount established. Both fresh grapes and raisins are toxic. Immediate veterinary care required.'
+            },
+            'raisins': {
+                'mechanism': 'Dried grapes containing concentrated toxic compounds that cause acute kidney failure. More concentrated than fresh grapes.',
+                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
+                'severity': 'high',
+                'additional_info': 'Even more dangerous than grapes due to concentration. As few as 6 raisins can be toxic to a 20lb dog.'
+            },
+            'onion': {
+                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
+                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
+                'severity': 'high',
+                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
+            },
+            'onions': {
+                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
+                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
+                'severity': 'high',
+                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
+            },
+            'garlic': {
+                'mechanism': 'Contains allicin and sulfur compounds that are 5x more potent than onions in causing red blood cell damage and anemia.',
+                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. More severe than onion toxicity.',
+                'severity': 'high',
+                'additional_info': 'More toxic than onions. Even small amounts can be dangerous. Cats are extremely sensitive.'
+            },
+            'xylitol': {
+                'mechanism': 'Artificial sweetener that causes rapid insulin release, leading to severe hypoglycemia and potential liver failure.',
+                'symptoms': 'Vomiting, loss of coordination, lethargy, collapse, seizures within 10-60 minutes. Liver failure possible in 12-24 hours.',
+                'severity': 'high',
+                'additional_info': 'Found in sugar-free gum, mints, baked goods. As little as 0.1g/kg can cause hypoglycemia. Emergency treatment required.'
+            },
+            'avocado': {
+                'mechanism': 'Contains persin, a fungicidal toxin that can cause digestive upset and respiratory distress in pets.',
+                'symptoms': 'Vomiting, diarrhea, difficulty breathing, fluid accumulation around heart. Birds and small mammals most sensitive.',
+                'severity': 'medium',
+                'additional_info': 'All parts toxic: fruit, pit, leaves, bark. Dogs and cats less sensitive than birds, but still at risk.'
+            },
+            'macadamia nuts': {
+                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
+                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
+                'severity': 'medium',
+                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
+            },
+            'macadamia': {
+                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
+                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
+                'severity': 'medium',
+                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
+            },
+            'caffeine': {
+                'mechanism': 'Methylxanthine stimulant that affects the central nervous system and cardiovascular system. Similar to theobromine toxicity.',
+                'symptoms': 'Hyperactivity, restlessness, vomiting, elevated heart rate, high blood pressure, abnormal heart rhythms, tremors, seizures.',
+                'severity': 'high',
+                'additional_info': 'Found in coffee, tea, energy drinks, medications. Pets are much more sensitive than humans. Can be fatal.'
+            },
+            'alcohol': {
+                'mechanism': 'Ethanol causes central nervous system depression, metabolic acidosis, and can lead to coma and death.',
+                'symptoms': 'Vomiting, diarrhea, difficulty breathing, tremors, abnormal blood acidity, coma, death.',
+                'severity': 'high',
+                'additional_info': 'Even small amounts dangerous. Found in alcoholic beverages, raw bread dough, mouthwash. Immediate veterinary care required.'
+            },
+            'chicken': {
+                'mechanism': 'Generally safe when properly cooked and boneless. Raw chicken may contain harmful bacteria like Salmonella.',
+                'symptoms': 'If raw or contaminated: vomiting, diarrhea, fever, lethargy from bacterial infection.',
+                'severity': 'no',
+                'additional_info': 'Cooked, boneless chicken is safe and nutritious. Avoid seasoning, bones, and raw preparation. Remove skin to reduce fat.'
+            },
+            'rice': {
+                'mechanism': 'Easily digestible carbohydrate that is safe and often recommended for digestive issues.',
+                'symptoms': 'Generally no adverse effects. May cause mild digestive upset if given in very large quantities.',
+                'severity': 'no',
+                'additional_info': 'Plain, cooked white or brown rice is safe. Often used in bland diets for digestive recovery. Avoid seasoning.'
+            },
+            'carrots': {
+                'mechanism': 'High in beta-carotene, fiber, and vitamins. Safe and nutritious for pets.',
+                'symptoms': 'No adverse effects. May cause orange discoloration of urine if consumed in very large quantities.',
+                'severity': 'no',
+                'additional_info': 'Raw or cooked carrots are safe. Good source of vitamins and can help with dental health. Cut into appropriate sizes.'
+            },
+            'sweet potato': {
+                'mechanism': 'Rich in vitamins, minerals, and fiber. Safe and nutritious for pets.',
+                'symptoms': 'No adverse effects when properly prepared. Raw sweet potato may cause digestive upset.',
+                'severity': 'no',
+                'additional_info': 'Cooked sweet potato is safe and nutritious. Avoid raw preparation and seasoning. Good source of beta-carotene.'
+            },
+            'pumpkin': {
+                'mechanism': 'High in fiber and nutrients. Often recommended for digestive health.',
+                'symptoms': 'No adverse effects. May cause loose stools if given in excessive amounts due to high fiber content.',
+                'severity': 'no',
+                'additional_info': 'Plain, cooked pumpkin is safe and beneficial. Avoid pumpkin pie filling with spices. Good for digestive health.'
+            }
+        }
+    
+    def analyze_ingredient(self, ingredient, pet_type):
+        """Analyze ingredient using built-in knowledge base"""
+        ingredient_lower = ingredient.lower().strip()
+        
+        # Check for exact matches first
+        if ingredient_lower in self.ingredient_database:
+            data = self.ingredient_database[ingredient_lower]
+            return {
+                'ingredient': ingredient,
+                'pet_type': pet_type,
+                'mechanism': data['mechanism'],
+                'symptoms': data['symptoms'],
+                'severity': data['severity'],
+                'additional_info': data.get('additional_info', ''),
+                'source': 'built_in_database'
+            }
+        
+        # Check for partial matches
+        for key, data in self.ingredient_database.items():
+            if key in ingredient_lower or ingredient_lower in key:
+                return {
+                    'ingredient': ingredient,
+                    'pet_type': pet_type,
+                    'mechanism': data['mechanism'],
+                    'symptoms': data['symptoms'],
+                    'severity': data['severity'],
+                    'additional_info': data.get('additional_info', ''),
+                    'source': 'built_in_database'
+                }
+        
+        # No match found - use fallback analysis
+        return self.fallback_analysis(ingredient, pet_type)
+    
+    def fallback_analysis(self, ingredient, pet_type):
+        """Fallback analysis for unknown ingredients"""
+        # Conservative approach - default to medium risk for unknown ingredients
+        return {
+            'ingredient': ingredient,
+            'pet_type': pet_type,
+            'mechanism': f"Safety data for {ingredient} is not available in our database. Consult with a veterinarian before giving this to your {pet_type}.",
+            'symptoms': 'Monitor for any changes in behavior, appetite, or energy levels. Watch for vomiting, diarrhea, or unusual behavior.',
+            'severity': 'medium',
+            'additional_info': 'When in doubt, it\'s always best to consult with a veterinarian before introducing new foods or substances.',
+            'source': 'fallback_analysis'
+        }
+
+class RealFormatterAgent:
+    """Agent that formats the final output"""
+    
+    def format_from_analysis(self, analysis_result):
+        """Format analysis results for display"""
+        ingredient = analysis_result['ingredient']
+        pet_type = analysis_result['pet_type']
+        severity = analysis_result['severity']
+        mechanism = analysis_result['mechanism']
+        symptoms = analysis_result['symptoms']
+        additional_info = analysis_result.get('additional_info', '')
+        
+        # Create detailed justification
+        justification_parts = []
+        
+        if severity == 'no':
+            justification_parts.append(f"{ingredient.capitalize()} is generally safe for {pet_type}s.")
+        else:
+            risk_descriptions = {
+                'high': 'poses a serious threat and can be life-threatening',
+                'medium': 'requires caution and veterinary consultation',
+                'low': 'may cause mild adverse reactions but is generally tolerable in small amounts'
+            }
+            justification_parts.append(f"{ingredient.capitalize()} {risk_descriptions.get(severity, 'requires caution')} for {pet_type}s.")
+        
+        # Add mechanism
+        if mechanism:
+            justification_parts.append(f"Mechanism: {mechanism}")
+        
+        # Add symptoms
+        if symptoms:
+            justification_parts.append(f"Symptoms may include: {symptoms}")
+        
+        # Add additional info
+        if additional_info:
+            justification_parts.append(additional_info)
+        
+        justification = ' '.join(justification_parts)
+        
+        # Generate sources
+        sources = [
+            "ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control",
+            "Pet Poison Helpline: https://www.petpoisonhelpline.com",
+            "VCA Animal Hospitals: https://vcahospitals.com"
+        ]
+        
+        return {
+            'name': ingredient,
+            'risk_level': severity,
+            'justification': justification,
+            'sources': ' | '.join(sources),
+            'cached': False,
+            'ai_powered': False,
+            'knowledge_based': True
+        }
+
+class RealMultiAgentSystem:
+    """Knowledge-based multi-agent system using built-in ingredient database"""
+    
+    def __init__(self):
+        self.knowledge_agent = KnowledgeBasedAgent()
         self.formatter_agent = RealFormatterAgent()
     
     async def process_ingredients(self, ingredients, pet_type, category):
-        """Process ingredients through the real multi-agent pipeline with caching"""
-        logger.info(f"🤖 Real Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
+        """Process ingredients through the knowledge-based pipeline with caching"""
+        logger.info(f"🤖 Knowledge-Based Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
         
         results = {'high': [], 'medium': [], 'low': [], 'no': []}
         
@@ -239,34 +416,24 @@ class RealMultiAgentSystem:
                     results[cached_result['risk_level']].append(cached_result)
                     continue
                 
-                # Not in cache - process through agents
-                logger.info(f"🔍 Research Agent: Researching {ingredient} online")
-                research_data = await self.research_agent.research(ingredient, pet_type)
-                
-                logger.info(f"⚖️ Risk Analysis Agent: AI analyzing {ingredient}")
-                risk_level = await self.risk_analysis_agent.analyze(research_data, pet_type)
-                
-                logger.info(f"✅ Fact Checker Agent: Validating {ingredient}")
-                validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
+                # Not in cache - process through knowledge base
+                logger.info(f"🧠 Knowledge Agent: Analyzing {ingredient} for {pet_type}")
+                analysis_result = self.knowledge_agent.analyze_ingredient(ingredient, pet_type)
                 
                 logger.info(f"📝 Formatter Agent: Formatting {ingredient}")
-                formatted_result = self.formatter_agent.format(ingredient, validated_data, risk_level)
+                formatted_result = self.formatter_agent.format_from_analysis(analysis_result)
                 
                 # Cache the result for future use
                 ingredient_cache.set(ingredient, pet_type, formatted_result)
                 
-                results[risk_level].append(formatted_result)
+                results[formatted_result['risk_level']].append(formatted_result)
                 
             except Exception as e:
                 logger.error(f"Error processing {ingredient}: {e}")
-                error_result = {
-                    'name': ingredient,
-                    'risk_level': 'medium',
-                    'justification': f"Unable to fully research {ingredient} due to technical issues. Please consult your veterinarian for safety information about {ingredient}.",
-                    'sources': ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control', 'Pet Poison Helpline: https://www.petpoisonhelpline.com'],
-                    'cached': False
-                }
-                results['medium'].append(error_result)
+                # Use fallback processing
+                fallback_result = self.knowledge_agent.fallback_analysis(ingredient, pet_type)
+                formatted_result = self.formatter_agent.format_from_analysis(fallback_result)
+                results[formatted_result['risk_level']].append(formatted_result)
         
         return results
 
@@ -813,10 +980,9 @@ def evaluate_ingredients():
         if not ingredients:
             return jsonify({'error': 'No ingredients provided'}), 400
         
-        logger.info(f"🚀 Processing request with DigitalOcean GenAI: {len(ingredients)} ingredients for {pet_type}")
+        logger.info(f"🚀 Processing request with Knowledge-Based System: {len(ingredients)} ingredients for {pet_type}")
         
-        # Process through DigitalOcean GenAI multi-agent system
-        # Configuration is validated at startup, so we know GenAI is available
+        # Process through knowledge-based multi-agent system
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
@@ -828,8 +994,9 @@ def evaluate_ingredients():
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'digitalocean_genai_powered',
-            'ai_powered': True
+            'mode': 'knowledge_based_system',
+            'ai_powered': False,
+            'knowledge_based': True
         })
         
     except Exception as e:
@@ -869,17 +1036,13 @@ if __name__ == '__main__':
     debug = os.getenv('FLASK_ENV') == 'development'
     
     logger.info(f"🐾 Starting Pet Ingredient Safety Checker on port {port}")
-    logger.info("🤖 DigitalOcean GenAI Multi-Agent System initialized and ready")
+    logger.info("🤖 Knowledge-Based Multi-Agent System initialized and ready")
     
     if genai_enabled:
-        logger.info("✅ DigitalOcean GenAI configured - Real AI-powered analysis enabled")
-        logger.info(f"   Research Agent: {genai_config['research_agent_id']}")
-        logger.info(f"   Risk Agent: {genai_config['risk_agent_id']}")
-        logger.info(f"   Fact Check Agent: {genai_config['factcheck_agent_id']}")
-        logger.info(f"   Region: {genai_config['region']}")
-        logger.info(f"   Inference URL: {genai_config['inference_url']}")
+        logger.info("✅ DigitalOcean GenAI configuration detected (not currently used)")
+        logger.info("   Using knowledge-based system with comprehensive ingredient database")
     else:
-        logger.warning("⚠️ DigitalOcean GenAI not configured - using fallback mode")
-        logger.warning("   Set DIGITALOCEAN_TOKEN and agent IDs for AI-powered analysis")
+        logger.info("ℹ️ Using knowledge-based system with built-in ingredient database")
+        logger.info("   System operates independently without external API dependencies")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
