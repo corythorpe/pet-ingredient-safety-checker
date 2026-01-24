@@ -29,6 +29,28 @@ services:
   - key: SECRET_KEY
     scope: RUN_TIME
     value: "dev-secret-key-change-in-production"
+  # DigitalOcean GenAI Configuration
+  - key: DIGITALOCEAN_TOKEN
+    scope: RUN_TIME
+    type: SECRET
+  - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
+    scope: RUN_TIME
+    value: "c9fca867-f7f1-11f0-b074-4e013e2ddde4"
+  - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
+    scope: RUN_TIME
+    value: "d824a8b9-f7f1-11f0-b074-4e013e2ddde4"
+  - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
+    scope: RUN_TIME
+    value: "e45b628c-f7f1-11f0-b074-4e013e2ddde4"
+  - key: DIGITALOCEAN_GENAI_PROJECT_ID
+    scope: RUN_TIME
+    value: "eaef27d1-07e4-4973-9f14-8cd36724af54"
+  - key: DIGITALOCEAN_GENAI_REGION
+    scope: RUN_TIME
+    value: "tor1"
+  - key: DIGITALOCEAN_GENAI_INFERENCE_URL
+    scope: RUN_TIME
+    value: "https://inference.do-ai.run/v1"
 
 databases:
 - name: pet-safety-db
