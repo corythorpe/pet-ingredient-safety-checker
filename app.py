@@ -43,19 +43,9 @@ genai_config = {
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
 
-# Check if GenAI is configured - OPTIONAL for operation (we have knowledge-based fallback)
-genai_enabled = all([
-    genai_config['research_agent_id'],
-    genai_config['risk_agent_id'], 
-    genai_config['factcheck_agent_id'],
-    genai_config['access_token']
-])
-
-# Log configuration status
-if genai_enabled:
-    logger.info("✅ DigitalOcean GenAI configuration detected")
-else:
-    logger.info("ℹ️ DigitalOcean GenAI not configured - using knowledge-based system")
+# We don't need GenAI inference - agents have their own model access
+genai_enabled = False
+logger.info("ℹ️ Using knowledge-based system with comprehensive ingredient database")
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
@@ -892,51 +882,6 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
         research_data['validated_risk'] = validated_risk
         return research_data
 
-class RealFormatterAgent:
-    """Agent that formats the final output"""
-    
-    def format(self, ingredient, validated_data, risk_level):
-        """Format the analysis results for display"""
-        
-        fact_check = validated_data.get('fact_check', {})
-        final_risk = fact_check.get('validated_risk', risk_level)
-        
-        # Create detailed justification
-        justification_parts = []
-        
-        if final_risk == 'no':
-            justification_parts.append(f"{ingredient.capitalize()} is generally safe for {validated_data['pet_type']}s.")
-        else:
-            risk_descriptions = {
-                'high': 'poses a serious threat and can be life-threatening',
-                'medium': 'can cause significant health problems and should be avoided',
-                'low': 'may cause mild adverse reactions but is generally tolerable in small amounts'
-            }
-            justification_parts.append(f"{ingredient.capitalize()} {risk_descriptions.get(final_risk, 'requires caution')} for {validated_data['pet_type']}s.")
-        
-        # Add mechanism if available
-        mechanism = fact_check.get('mechanism', '')
-        if mechanism and mechanism != 'Requires veterinary assessment':
-            justification_parts.append(f"Mechanism: {mechanism}")
-        
-        # Add symptoms if available
-        symptoms = fact_check.get('symptoms', '')
-        if symptoms and symptoms != 'Monitor pet closely':
-            justification_parts.append(f"Symptoms may include: {symptoms}")
-        
-        justification = ' '.join(justification_parts)
-        
-        # Get authoritative sources - check both possible keys
-        sources = fact_check.get('authoritative_sources', fact_check.get('sources', 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'))
-        
-        return {
-            'name': ingredient,
-            'risk_level': final_risk,
-            'justification': justification,
-            'sources': sources,
-            'cached': False,
-            'ai_powered': True
-        }
 
 # Initialize real multi-agent system
 real_agents = RealMultiAgentSystem()
