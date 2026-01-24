@@ -262,8 +262,8 @@ class RealMultiAgentSystem:
                 error_result = {
                     'name': ingredient,
                     'risk_level': 'medium',
-                    'justification': f"Unable to fully research {ingredient} due to technical issues. Please consult your veterinarian for safety information.",
-                    'sources': 'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control',
+                    'justification': f"Unable to fully research {ingredient} due to technical issues. Please consult your veterinarian for safety information about {ingredient}.",
+                    'sources': ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control', 'Pet Poison Helpline: https://www.petpoisonhelpline.com'],
                     'cached': False
                 }
                 results['medium'].append(error_result)
