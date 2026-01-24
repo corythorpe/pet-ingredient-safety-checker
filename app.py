@@ -789,6 +789,14 @@ def how_it_works():
     """Serve the how it works dashboard"""
     return render_template('how_it_works.html')
 
+@app.route('/favicon.ico')
+def favicon():
+    """Serve the favicon"""
+    from flask import send_from_directory
+    import os
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 @app.route('/api/evaluate', methods=['POST'])
 def evaluate_ingredients():
     """API endpoint to evaluate ingredients using real multi-agent system"""
@@ -857,7 +865,7 @@ def health_check():
     })
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
+    port = int(os.getenv('PORT', 5001))
     debug = os.getenv('FLASK_ENV') == 'development'
     
     logger.info(f"🐾 Starting Pet Ingredient Safety Checker on port {port}")
