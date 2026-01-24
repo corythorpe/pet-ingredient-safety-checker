@@ -43,9 +43,19 @@ genai_config = {
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
 
-# We don't need GenAI inference - agents have their own model access
-genai_enabled = False
-logger.info("ℹ️ Using knowledge-based system with comprehensive ingredient database")
+# Check if all required GenAI configuration is available
+genai_enabled = all([
+    genai_config['access_token'],
+    genai_config['research_agent_id'],
+    genai_config['risk_agent_id'],
+    genai_config['factcheck_agent_id'],
+    genai_config['inference_url']
+])
+
+if genai_enabled:
+    logger.info("✅ DigitalOcean GenAI configuration detected")
+else:
+    logger.info("ℹ️ Using knowledge-based system with comprehensive ingredient database")
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
@@ -883,8 +893,92 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
         return research_data
 
 
-# Initialize real multi-agent system
-real_agents = RealMultiAgentSystem()
+# Initialize the appropriate multi-agent system based on configuration
+if genai_enabled:
+    # Use AI-powered system with DigitalOcean GenAI agents
+    class AIMultiAgentSystem:
+        """AI-powered multi-agent system using DigitalOcean GenAI agents"""
+        
+        def __init__(self):
+            self.research_agent = RealResearchAgent()
+            self.risk_analysis_agent = RealRiskAnalysisAgent()
+            self.fact_checker_agent = RealFactCheckerAgent()
+        
+        async def process_ingredients(self, ingredients, pet_type, category):
+            """Process ingredients through the AI-powered pipeline with caching"""
+            logger.info(f"🤖 AI-Powered Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
+            
+            results = {'high': [], 'medium': [], 'low': [], 'no': []}
+            
+            # Clean up expired cache entries at the start
+            ingredient_cache.cleanup_expired()
+            
+            for ingredient in ingredients:
+                try:
+                    # Check cache first
+                    cached_result = ingredient_cache.get(ingredient, pet_type)
+                    if cached_result:
+                        # Use cached result
+                        cached_result['cached'] = True
+                        results[cached_result['risk_level']].append(cached_result)
+                        continue
+                    
+                    # Not in cache - process through AI agents
+                    logger.info(f"🔬 Research Agent: Researching {ingredient} for {pet_type}")
+                    research_data = await self.research_agent.research(ingredient, pet_type)
+                    
+                    logger.info(f"⚖️ Risk Analysis Agent: Analyzing {ingredient}")
+                    risk_level = await self.risk_analysis_agent.analyze(research_data, pet_type)
+                    
+                    logger.info(f"✅ Fact Checker Agent: Validating {ingredient}")
+                    validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
+                    
+                    # Format the result
+                    formatted_result = {
+                        'name': ingredient,
+                        'risk_level': validated_data['validated_risk'],
+                        'justification': f"{ingredient.capitalize()} {self._get_risk_description(validated_data['validated_risk'])} for {pet_type}s. {validated_data['fact_check']['mechanism']} {validated_data['fact_check']['symptoms']}",
+                        'sources': validated_data['fact_check'].get('authoritative_sources', ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control']),
+                        'cached': False,
+                        'ai_powered': True,
+                        'knowledge_based': False
+                    }
+                    
+                    # Cache the result for future use
+                    ingredient_cache.set(ingredient, pet_type, formatted_result)
+                    
+                    results[formatted_result['risk_level']].append(formatted_result)
+                    
+                except Exception as e:
+                    logger.error(f"Error processing {ingredient}: {e}")
+                    # Use fallback processing
+                    fallback_result = {
+                        'name': ingredient,
+                        'risk_level': 'medium',
+                        'justification': f"Error occurred while researching {ingredient}. Consult your veterinarian for safety information.",
+                        'sources': ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'],
+                        'cached': False,
+                        'ai_powered': False,
+                        'knowledge_based': False
+                    }
+                    results['medium'].append(fallback_result)
+            
+            return results
+        
+        def _get_risk_description(self, risk_level):
+            """Get human-readable risk description"""
+            descriptions = {
+                'high': 'poses a serious threat and can be life-threatening',
+                'medium': 'requires caution and veterinary consultation',
+                'low': 'may cause mild adverse reactions but is generally tolerable in small amounts',
+                'no': 'is generally safe'
+            }
+            return descriptions.get(risk_level, 'requires caution')
+    
+    real_agents = AIMultiAgentSystem()
+else:
+    # Use knowledge-based system
+    real_agents = RealMultiAgentSystem()
 
 @app.route('/')
 def index():
@@ -925,9 +1019,12 @@ def evaluate_ingredients():
         if not ingredients:
             return jsonify({'error': 'No ingredients provided'}), 400
         
-        logger.info(f"🚀 Processing request with Knowledge-Based System: {len(ingredients)} ingredients for {pet_type}")
+        if genai_enabled:
+            logger.info(f"🚀 Processing request with AI-Powered System: {len(ingredients)} ingredients for {pet_type}")
+        else:
+            logger.info(f"🚀 Processing request with Knowledge-Based System: {len(ingredients)} ingredients for {pet_type}")
         
-        # Process through knowledge-based multi-agent system
+        # Process through the appropriate multi-agent system
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
@@ -939,9 +1036,9 @@ def evaluate_ingredients():
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'knowledge_based_system',
-            'ai_powered': False,
-            'knowledge_based': True
+            'mode': 'digitalocean_genai_powered' if genai_enabled else 'knowledge_based_system',
+            'ai_powered': genai_enabled,
+            'knowledge_based': not genai_enabled
         })
         
     except Exception as e:
