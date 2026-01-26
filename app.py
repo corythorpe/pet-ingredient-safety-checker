@@ -30,16 +30,15 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
-# Initialize DigitalOcean GenAI client configuration
+# Initialize DigitalOcean GenAI configuration
 genai_config = {
     'research_agent_id': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID'),
     'risk_agent_id': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_ID'),
     'factcheck_agent_id': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID'),
     'project_id': os.getenv('DIGITALOCEAN_GENAI_PROJECT_ID'),
-    'model_id': os.getenv('DIGITALOCEAN_GENAI_MODEL_ID'),
-    'region': os.getenv('DIGITALOCEAN_GENAI_REGION'),
-    'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL'),
-    'stream_url': os.getenv('DIGITALOCEAN_GENAI_STREAM_URL'),
+    'region': os.getenv('DIGITALOCEAN_GENAI_REGION', 'tor1'),
+    'agent_base_url': 'https://api.digitalocean.com/v2/genai/agents',
+    'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL', 'https://inference.do-ai.run/v1'),
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
 
@@ -48,14 +47,19 @@ genai_enabled = all([
     genai_config['access_token'],
     genai_config['research_agent_id'],
     genai_config['risk_agent_id'],
-    genai_config['factcheck_agent_id'],
-    genai_config['inference_url']
+    genai_config['factcheck_agent_id']
 ])
 
 if genai_enabled:
-    logger.info("✅ DigitalOcean GenAI configuration detected")
+    logger.info("✅ DigitalOcean GenAI agents configured - using direct agent calls")
 else:
-    logger.info("ℹ️ Using knowledge-based system with comprehensive ingredient database")
+    logger.error("❌ DigitalOcean GenAI configuration missing - application requires agents to function")
+    logger.error("Required environment variables:")
+    logger.error("- DIGITALOCEAN_TOKEN")
+    logger.error("- DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID")
+    logger.error("- DIGITALOCEAN_GENAI_RISK_AGENT_ID") 
+    logger.error("- DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID")
+    raise Exception("Missing required DigitalOcean GenAI configuration")
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
@@ -975,13 +979,9 @@ class AIMultiAgentSystem:
         }
         return descriptions.get(risk_level, 'requires caution')
 
-# Initialize the appropriate multi-agent system based on configuration
-if genai_enabled:
-    logger.info("🤖 Initializing AI-Powered Multi-Agent System with DigitalOcean GenAI")
-    real_agents = AIMultiAgentSystem()
-else:
-    logger.info("🧠 Initializing Knowledge-Based Multi-Agent System")
-    real_agents = RealMultiAgentSystem()
+# Initialize the AI-powered multi-agent system - agents are required
+logger.info("🤖 Initializing AI-Powered Multi-Agent System with DigitalOcean GenAI")
+real_agents = AIMultiAgentSystem()
 
 @app.route('/')
 def index():
@@ -1022,12 +1022,9 @@ def evaluate_ingredients():
         if not ingredients:
             return jsonify({'error': 'No ingredients provided'}), 400
         
-        if genai_enabled:
-            logger.info(f"🚀 Processing request with AI-Powered System: {len(ingredients)} ingredients for {pet_type}")
-        else:
-            logger.info(f"🚀 Processing request with Knowledge-Based System: {len(ingredients)} ingredients for {pet_type}")
+        logger.info(f"🚀 Processing request with AI-Powered Agent System: {len(ingredients)} ingredients for {pet_type}")
         
-        # Process through the appropriate multi-agent system
+        # Process through the AI-powered multi-agent system
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
@@ -1039,9 +1036,9 @@ def evaluate_ingredients():
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'ai_powered_system' if genai_enabled else 'knowledge_based_system',
-            'ai_powered': genai_enabled,
-            'knowledge_based': not genai_enabled
+            'mode': 'ai_powered_agent_system',
+            'ai_powered': True,
+            'agent_based': True
         })
         
     except Exception as e:
@@ -1081,13 +1078,8 @@ if __name__ == '__main__':
     debug = os.getenv('FLASK_ENV') == 'development'
     
     logger.info(f"🐾 Starting Pet Ingredient Safety Checker on port {port}")
-    logger.info("🤖 Knowledge-Based Multi-Agent System initialized and ready")
-    
-    if genai_enabled:
-        logger.info("✅ DigitalOcean GenAI configuration detected (not currently used)")
-        logger.info("   Using knowledge-based system with comprehensive ingredient database")
-    else:
-        logger.info("ℹ️ Using knowledge-based system with built-in ingredient database")
-        logger.info("   System operates independently without external API dependencies")
+    logger.info("🤖 AI-Powered Multi-Agent System using DigitalOcean GenAI agents")
+    logger.info("✅ Application configured to use agents directly for ingredient research")
+    logger.info("📋 Cache system enabled for performance optimization")
     
     app.run(host='0.0.0.0', port=port, debug=debug)
