@@ -513,6 +513,38 @@ Conduct comprehensive research on this ingredient's safety for pets. Your resear
 Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
             }
             
+            # Use the deployed agent endpoint - agents are deployed services with their own URLs
+            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['research_agent_id']}/invoke"
+            
+            payload = {
+                'input': f"""RESEARCH TASK: {query}
+
+Conduct comprehensive research on this ingredient's safety for pets. Your research should include:
+
+1. TOXICITY ANALYSIS:
+   - Specific toxic compounds and mechanisms
+   - Lethal dose ranges and toxic thresholds
+   - Metabolic pathways and how pets process this ingredient
+
+2. CLINICAL EVIDENCE:
+   - Documented cases from veterinary literature
+   - Symptoms and clinical presentations
+   - Treatment protocols and outcomes
+
+3. AUTHORITATIVE SOURCES:
+   - ASPCA Animal Poison Control findings
+   - Pet Poison Helpline data
+   - Veterinary toxicology journals
+   - FDA/USDA safety assessments
+
+4. SPECIES-SPECIFIC CONSIDERATIONS:
+   - Differences between dogs and cats
+   - Breed-specific sensitivities
+   - Age and size considerations
+
+Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
+            }
+            
             response = requests.post(
                 agent_url,
                 headers=headers,
@@ -583,6 +615,27 @@ Risk Categories:
 Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
             }
             
+            # Use the deployed agent endpoint
+            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['risk_agent_id']}/invoke"
+            
+            payload = {
+                'input': f"""Analyze the research data and categorize the risk level for {pet_type}s.
+
+Ingredient: {research_data['ingredient']}
+Pet Type: {pet_type}
+
+Research Data:
+{research_content}
+
+Risk Categories:
+- HIGH: Toxic, can cause serious illness or death
+- MEDIUM: Can cause moderate health issues, requires caution
+- LOW: Minor concerns, generally safe in small amounts
+- NO: Safe for consumption
+
+Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
+            }
+            
             response = requests.post(
                 agent_url,
                 headers=headers,
@@ -632,6 +685,28 @@ class RealFactCheckerAgent:
             
             # Use the deployed agent endpoint
             agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
+            
+            payload = {
+                'input': f"""Review the research and risk assessment for accuracy.
+
+Ingredient: {research_data['ingredient']}
+Pet Type: {pet_type}
+Proposed Risk Level: {risk_level}
+
+Research Data:
+{research_content}
+
+Provide:
+1. Validation of the risk level (confirm or suggest correction)
+2. Key toxic mechanisms if applicable
+3. Specific symptoms to watch for
+4. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
+
+Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sources"""
+            }
+            
+            # Use the deployed agent endpoint
+            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
             
             payload = {
                 'input': f"""Review the research and risk assessment for accuracy.
