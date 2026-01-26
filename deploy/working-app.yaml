@@ -1,0 +1,43 @@
+# DigitalOcean App Platform Configuration
+# Pet Ingredient Safety Checker - Working Version with Knowledge Base Fallback
+
+name: pet-safety-checker-working
+services:
+- name: web
+  source_dir: /
+  github:
+    repo: corythorpe/pet-ingredient-safety-checker
+    branch: main
+  run_command: python3 simple_server.py
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 5000
+  routes:
+  - path: /
+  health_check:
+    http_path: /api/health
+  envs:
+  - key: PORT
+    scope: RUN_TIME
+    value: "5000"
+  - key: FLASK_ENV
+    scope: RUN_TIME
+    value: "production"
+  - key: PYTHONPATH
+    scope: RUN_TIME
+    value: "/app"
+  # Optional DigitalOcean GenAI configuration (if available)
+  # These should be configured as secrets in the DigitalOcean App Platform UI
+  # - key: DIGITALOCEAN_TOKEN
+  #   scope: RUN_TIME
+  #   type: SECRET
+  # - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
+  #   scope: RUN_TIME
+  #   type: SECRET
+  # - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
+  #   scope: RUN_TIME
+  #   type: SECRET
+  # - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
+  #   scope: RUN_TIME
+  #   type: SECRET
