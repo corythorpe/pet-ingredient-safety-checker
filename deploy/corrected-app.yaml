@@ -1,15 +1,15 @@
 # DigitalOcean App Platform Configuration
-# Pet Ingredient Safety Checker - Corrected Version
+# Pet Ingredient Safety Checker - Corrected Version with AI Agents
 
-name: pet-ingredient-safety-checker
+name: pet-safety-checker-ai
 services:
 - name: web
   source_dir: /
-  run_command: python3 app.py
+  run_command: gunicorn --bind 0.0.0.0:$PORT app:app
   environment_slug: python
   instance_count: 1
   instance_size_slug: basic-xxs
-  http_port: 5000
+  http_port: 8080
   routes:
   - path: /
   health_check:
@@ -17,34 +17,38 @@ services:
   envs:
   - key: PORT
     scope: RUN_TIME
-    value: "5000"
+    value: "8080"
   - key: FLASK_ENV
     scope: RUN_TIME
     value: "production"
-  - key: DIGITALOCEAN_TOKEN
+  - key: PYTHONPATH
     scope: RUN_TIME
-    type: SECRET
-  - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
-    scope: RUN_TIME
-    value: "research-agent-v1"
-  - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
-    scope: RUN_TIME
-    value: "risk-agent-v1"
-  - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
-    scope: RUN_TIME
-    value: "factcheck-agent-v1"
-  - key: DIGITALOCEAN_GENAI_PROJECT_ID
-    scope: RUN_TIME
-    value: "pet-safety-project"
-  - key: DIGITALOCEAN_GENAI_MODEL_ID
-    scope: RUN_TIME
-    value: "gpt-4"
-  - key: DIGITALOCEAN_GENAI_REGION
-    scope: RUN_TIME
-    value: "nyc1"
-  - key: DIGITALOCEAN_GENAI_INFERENCE_URL
-    scope: RUN_TIME
-    value: "https://api.digitalocean.com/v2/genai"
-  - key: DIGITALOCEAN_GENAI_STREAM_URL
-    scope: RUN_TIME
-    value: "https://api.digitalocean.com/v2/genai/stream"
+    value: "/app"
+  # DigitalOcean GenAI Configuration - Set these in the control panel
+  # - key: DIGITALOCEAN_TOKEN
+  #   scope: RUN_TIME
+  #   value: "your_do_token_here"
+  # - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
+  #   scope: RUN_TIME
+  #   value: "your_research_agent_id"
+  # - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
+  #   scope: RUN_TIME
+  #   value: "your_risk_agent_id"
+  # - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
+  #   scope: RUN_TIME
+  #   value: "your_factcheck_agent_id"
+  # - key: DIGITALOCEAN_GENAI_PROJECT_ID
+  #   scope: RUN_TIME
+  #   value: "your_project_id"
+  # - key: DIGITALOCEAN_GENAI_MODEL_ID
+  #   scope: RUN_TIME
+  #   value: "your_model_id"
+  # - key: DIGITALOCEAN_GENAI_REGION
+  #   scope: RUN_TIME
+  #   value: "tor1"
+  # - key: DIGITALOCEAN_GENAI_INFERENCE_URL
+  #   scope: RUN_TIME
+  #   value: "https://inference.do-ai.run/v1"
+  # - key: DIGITALOCEAN_GENAI_STREAM_URL
+  #   scope: RUN_TIME
+  #   value: "https://stream.do-ai.run"
