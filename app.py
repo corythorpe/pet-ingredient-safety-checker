@@ -36,8 +36,8 @@ genai_config = {
     'risk_agent_id': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_ID'),
     'factcheck_agent_id': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID'),
     'project_id': os.getenv('DIGITALOCEAN_GENAI_PROJECT_ID'),
+    'model_id': os.getenv('DIGITALOCEAN_GENAI_MODEL_ID'),
     'region': os.getenv('DIGITALOCEAN_GENAI_REGION', 'tor1'),
-    'agent_base_url': 'https://api.digitalocean.com/v2/genai/agents',
     'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL', 'https://inference.do-ai.run/v1'),
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
@@ -475,22 +475,17 @@ class RealResearchAgent:
         """Use DigitalOcean GenAI agent for REAL web research"""
         
         try:
-            # Call DigitalOcean GenAI Research Agent with enhanced research prompt
+            # Call DigitalOcean GenAI Research Agent directly
             headers = {
                 'Authorization': f'Bearer {genai_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
+            # Use the deployed agent endpoint - agents are deployed services with their own URLs
+            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['research_agent_id']}/invoke"
+            
             payload = {
-                'model': genai_config['research_agent_id'],
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': 'You are a veterinary research assistant with access to current veterinary databases and literature. You conduct thorough research on pet ingredient safety using authoritative sources.'
-                    },
-                    {
-                        'role': 'user', 
-                        'content': f"""RESEARCH TASK: {query}
+                'input': f"""RESEARCH TASK: {query}
 
 Conduct comprehensive research on this ingredient's safety for pets. Your research should include:
 
@@ -516,13 +511,10 @@ Conduct comprehensive research on this ingredient's safety for pets. Your resear
    - Age and size considerations
 
 Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
-                    }
-                ],
-                'max_tokens': 800
             }
             
             response = requests.post(
-                genai_config['inference_url'] + '/chat/completions',
+                agent_url,
                 headers=headers,
                 json=payload,
                 timeout=45
@@ -530,7 +522,8 @@ Provide detailed, evidence-based information with specific source citations and 
             
             if response.status_code == 200:
                 result = response.json()
-                content = result['choices'][0]['message']['content']
+                # Handle the DigitalOcean GenAI agent response format
+                content = result.get('output', result.get('response', str(result)))
                 
                 return {
                     'query': query,
@@ -541,7 +534,7 @@ Provide detailed, evidence-based information with specific source citations and 
                     'research_type': 'comprehensive_veterinary_research'
                 }
             else:
-                logger.error(f"GenAI API error: {response.status_code} - {response.text}")
+                logger.error(f"GenAI Agent API error: {response.status_code} - {response.text}")
                 raise Exception(f"Research Agent API error: {response.status_code}")
                 
         except Exception as e:
@@ -563,22 +556,17 @@ class RealRiskAnalysisAgent:
             return 'medium'  # Default to medium risk if no research data
         
         try:
-            # Call DigitalOcean GenAI Risk Analysis Agent
+            # Call DigitalOcean GenAI Risk Analysis Agent directly
             headers = {
                 'Authorization': f'Bearer {genai_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
+            # Use the deployed agent endpoint
+            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['risk_agent_id']}/invoke"
+            
             payload = {
-                'model': genai_config['risk_agent_id'],
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': 'You are a veterinary toxicology expert specializing in risk assessment for pet ingredients.'
-                    },
-                    {
-                        'role': 'user',
-                        'content': f"""Analyze the research data and categorize the risk level for {pet_type}s.
+                'input': f"""Analyze the research data and categorize the risk level for {pet_type}s.
 
 Ingredient: {research_data['ingredient']}
 Pet Type: {pet_type}
@@ -593,13 +581,10 @@ Risk Categories:
 - NO: Safe for consumption
 
 Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
-                    }
-                ],
-                'max_tokens': 10
             }
             
             response = requests.post(
-                genai_config['inference_url'] + '/chat/completions',
+                agent_url,
                 headers=headers,
                 json=payload,
                 timeout=30
@@ -607,7 +592,8 @@ Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
             
             if response.status_code == 200:
                 result = response.json()
-                risk_response = result['choices'][0]['message']['content'].strip().upper()
+                # Handle the DigitalOcean GenAI agent response format
+                risk_response = result.get('output', result.get('response', str(result))).strip().upper()
                 
                 # Map response to our risk levels
                 risk_mapping = {
@@ -619,7 +605,7 @@ Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
                 
                 return risk_mapping.get(risk_response, 'medium')
             else:
-                logger.error(f"GenAI Risk API error: {response.status_code} - {response.text}")
+                logger.error(f"GenAI Risk Agent API error: {response.status_code} - {response.text}")
                 raise Exception(f"Risk Analysis Agent API error: {response.status_code}")
                 
         except Exception as e:
@@ -638,22 +624,17 @@ class RealFactCheckerAgent:
         ])
         
         try:
-            # Call DigitalOcean GenAI Fact Checker Agent
+            # Call DigitalOcean GenAI Fact Checker Agent directly
             headers = {
                 'Authorization': f'Bearer {genai_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
+            # Use the deployed agent endpoint
+            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
+            
             payload = {
-                'model': genai_config['factcheck_agent_id'],
-                'messages': [
-                    {
-                        'role': 'system',
-                        'content': 'You are a veterinary fact-checker specializing in validating pet ingredient safety information.'
-                    },
-                    {
-                        'role': 'user',
-                        'content': f"""Review the research and risk assessment for accuracy.
+                'input': f"""Review the research and risk assessment for accuracy.
 
 Ingredient: {research_data['ingredient']}
 Pet Type: {pet_type}
@@ -669,13 +650,10 @@ Provide:
 4. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
 
 Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sources"""
-                    }
-                ],
-                'max_tokens': 400
             }
             
             response = requests.post(
-                genai_config['inference_url'] + '/chat/completions',
+                agent_url,
                 headers=headers,
                 json=payload,
                 timeout=30
@@ -683,7 +661,8 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
             
             if response.status_code == 200:
                 result = response.json()
-                fact_check_response = result['choices'][0]['message']['content']
+                # Handle the DigitalOcean GenAI agent response format
+                fact_check_response = result.get('output', result.get('response', str(result)))
                 
                 # Try to parse JSON response
                 try:
@@ -702,7 +681,7 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
                 
                 return research_data
             else:
-                logger.error(f"GenAI Fact Check API error: {response.status_code} - {response.text}")
+                logger.error(f"GenAI Fact Check Agent API error: {response.status_code} - {response.text}")
                 raise Exception(f"Fact Checker Agent API error: {response.status_code}")
                 
         except Exception as e:
