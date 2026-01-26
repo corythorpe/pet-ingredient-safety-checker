@@ -1,0 +1,3 @@
+agent_environment: fact_checker_agent_deploy
+agent_name: fact_checker_agent_workspace
+entrypoint_file: fact_checker_agent.py

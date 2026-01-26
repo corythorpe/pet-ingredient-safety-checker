@@ -30,36 +30,24 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
-# Initialize DigitalOcean GenAI configuration
-genai_config = {
-    'research_agent_id': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID'),
-    'risk_agent_id': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_ID'),
-    'factcheck_agent_id': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID'),
-    'project_id': os.getenv('DIGITALOCEAN_GENAI_PROJECT_ID'),
-    'model_id': os.getenv('DIGITALOCEAN_GENAI_MODEL_ID'),
-    'region': os.getenv('DIGITALOCEAN_GENAI_REGION', 'tor1'),
-    'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL', 'https://inference.do-ai.run/v1'),
+# Initialize ADK Agent configuration
+adk_config = {
+    'research_agent_url': 'https://agents.do-ai.run/fc9c0fe5-f6b5-4da2-9bbb-26d200eccce4/research_agent_deploy/run',
+    'risk_agent_url': 'https://agents.do-ai.run/dfeaa36e-d5f0-4bb4-8ecd-675403bb1295/risk_analysis_agent_deploy/run',
+    'factcheck_agent_url': 'https://agents.do-ai.run/0cdb9493-9bbf-4c2a-9185-0abc062e5087/fact_checker_agent_deploy/run',
     'access_token': os.getenv('DIGITALOCEAN_TOKEN')
 }
 
-# Check if all required GenAI configuration is available
-genai_enabled = all([
-    genai_config['access_token'],
-    genai_config['research_agent_id'],
-    genai_config['risk_agent_id'],
-    genai_config['factcheck_agent_id']
-])
+# Check if all required ADK configuration is available
+adk_enabled = bool(adk_config['access_token'])
 
-if genai_enabled:
-    logger.info("✅ DigitalOcean GenAI agents configured - using direct agent calls")
+if adk_enabled:
+    logger.info("✅ ADK agents configured - using deployed agent endpoints")
 else:
-    logger.error("❌ DigitalOcean GenAI configuration missing - application requires agents to function")
+    logger.error("❌ ADK configuration missing - application requires DIGITALOCEAN_TOKEN")
     logger.error("Required environment variables:")
     logger.error("- DIGITALOCEAN_TOKEN")
-    logger.error("- DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID")
-    logger.error("- DIGITALOCEAN_GENAI_RISK_AGENT_ID") 
-    logger.error("- DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID")
-    raise Exception("Missing required DigitalOcean GenAI configuration")
+    raise Exception("Missing required ADK configuration")
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
@@ -472,77 +460,21 @@ class RealResearchAgent:
         }
     
     async def _search_web(self, query):
-        """Use DigitalOcean GenAI agent for REAL web research"""
+        """Use ADK Research Agent for REAL web research"""
         
         try:
-            # Call DigitalOcean GenAI Research Agent directly
+            # Call ADK Research Agent directly
             headers = {
-                'Authorization': f'Bearer {genai_config["access_token"]}',
+                'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
-            # Use the deployed agent endpoint - agents are deployed services with their own URLs
-            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['research_agent_id']}/invoke"
+            # Use the correct ADK agent endpoint
+            agent_url = adk_config['research_agent_url']
             
             payload = {
-                'input': f"""RESEARCH TASK: {query}
-
-Conduct comprehensive research on this ingredient's safety for pets. Your research should include:
-
-1. TOXICITY ANALYSIS:
-   - Specific toxic compounds and mechanisms
-   - Lethal dose ranges and toxic thresholds
-   - Metabolic pathways and how pets process this ingredient
-
-2. CLINICAL EVIDENCE:
-   - Documented cases from veterinary literature
-   - Symptoms and clinical presentations
-   - Treatment protocols and outcomes
-
-3. AUTHORITATIVE SOURCES:
-   - ASPCA Animal Poison Control findings
-   - Pet Poison Helpline data
-   - Veterinary toxicology journals
-   - FDA/USDA safety assessments
-
-4. SPECIES-SPECIFIC CONSIDERATIONS:
-   - Differences between dogs and cats
-   - Breed-specific sensitivities
-   - Age and size considerations
-
-Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
-            }
-            
-            # Use the deployed agent endpoint - agents are deployed services with their own URLs
-            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['research_agent_id']}/invoke"
-            
-            payload = {
-                'input': f"""RESEARCH TASK: {query}
-
-Conduct comprehensive research on this ingredient's safety for pets. Your research should include:
-
-1. TOXICITY ANALYSIS:
-   - Specific toxic compounds and mechanisms
-   - Lethal dose ranges and toxic thresholds
-   - Metabolic pathways and how pets process this ingredient
-
-2. CLINICAL EVIDENCE:
-   - Documented cases from veterinary literature
-   - Symptoms and clinical presentations
-   - Treatment protocols and outcomes
-
-3. AUTHORITATIVE SOURCES:
-   - ASPCA Animal Poison Control findings
-   - Pet Poison Helpline data
-   - Veterinary toxicology journals
-   - FDA/USDA safety assessments
-
-4. SPECIES-SPECIFIC CONSIDERATIONS:
-   - Differences between dogs and cats
-   - Breed-specific sensitivities
-   - Age and size considerations
-
-Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
+                'ingredient': query.split()[0],  # Extract ingredient from query
+                'pet_type': 'dog' if 'dog' in query else 'cat'
             }
             
             response = requests.post(
@@ -554,23 +486,23 @@ Provide detailed, evidence-based information with specific source citations and 
             
             if response.status_code == 200:
                 result = response.json()
-                # Handle the DigitalOcean GenAI agent response format
-                content = result.get('output', result.get('response', str(result)))
+                # Handle the ADK agent response format
+                content = result.get('research_results', str(result))
                 
                 return {
                     'query': query,
                     'content': content,
-                    'source': 'DigitalOcean GenAI Research Agent - Comprehensive Research',
+                    'source': 'ADK Research Agent - Comprehensive Research',
                     'timestamp': datetime.utcnow().isoformat(),
-                    'agent_id': genai_config['research_agent_id'],
+                    'agent_type': 'adk_research_agent',
                     'research_type': 'comprehensive_veterinary_research'
                 }
             else:
-                logger.error(f"GenAI Agent API error: {response.status_code} - {response.text}")
+                logger.error(f"ADK Agent API error: {response.status_code} - {response.text}")
                 raise Exception(f"Research Agent API error: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"DigitalOcean GenAI research failed: {e}")
+            logger.error(f"ADK research agent failed: {e}")
             raise Exception(f"Research Agent temporarily unavailable: {e}")
 
 class RealRiskAnalysisAgent:
@@ -588,52 +520,19 @@ class RealRiskAnalysisAgent:
             return 'medium'  # Default to medium risk if no research data
         
         try:
-            # Call DigitalOcean GenAI Risk Analysis Agent directly
+            # Call ADK Risk Analysis Agent directly
             headers = {
-                'Authorization': f'Bearer {genai_config["access_token"]}',
+                'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
-            # Use the deployed agent endpoint
-            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['risk_agent_id']}/invoke"
+            # Use the correct ADK agent endpoint
+            agent_url = adk_config['risk_agent_url']
             
             payload = {
-                'input': f"""Analyze the research data and categorize the risk level for {pet_type}s.
-
-Ingredient: {research_data['ingredient']}
-Pet Type: {pet_type}
-
-Research Data:
-{research_content}
-
-Risk Categories:
-- HIGH: Toxic, can cause serious illness or death
-- MEDIUM: Can cause moderate health issues, requires caution
-- LOW: Minor concerns, generally safe in small amounts
-- NO: Safe for consumption
-
-Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
-            }
-            
-            # Use the deployed agent endpoint
-            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['risk_agent_id']}/invoke"
-            
-            payload = {
-                'input': f"""Analyze the research data and categorize the risk level for {pet_type}s.
-
-Ingredient: {research_data['ingredient']}
-Pet Type: {pet_type}
-
-Research Data:
-{research_content}
-
-Risk Categories:
-- HIGH: Toxic, can cause serious illness or death
-- MEDIUM: Can cause moderate health issues, requires caution
-- LOW: Minor concerns, generally safe in small amounts
-- NO: Safe for consumption
-
-Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
+                'ingredient': research_data['ingredient'],
+                'pet_type': pet_type,
+                'research_data': research_content
             }
             
             response = requests.post(
@@ -645,24 +544,16 @@ Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
             
             if response.status_code == 200:
                 result = response.json()
-                # Handle the DigitalOcean GenAI agent response format
-                risk_response = result.get('output', result.get('response', str(result))).strip().upper()
+                # Handle the ADK agent response format
+                risk_level = result.get('risk_level', 'medium')
                 
-                # Map response to our risk levels
-                risk_mapping = {
-                    'HIGH': 'high',
-                    'MEDIUM': 'medium', 
-                    'LOW': 'low',
-                    'NO': 'no'
-                }
-                
-                return risk_mapping.get(risk_response, 'medium')
+                return risk_level
             else:
-                logger.error(f"GenAI Risk Agent API error: {response.status_code} - {response.text}")
+                logger.error(f"ADK Risk Agent API error: {response.status_code} - {response.text}")
                 raise Exception(f"Risk Analysis Agent API error: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"DigitalOcean GenAI risk analysis failed: {e}")
+            logger.error(f"ADK risk analysis agent failed: {e}")
             raise Exception(f"Risk Analysis Agent temporarily unavailable: {e}")
 
 class RealFactCheckerAgent:
@@ -677,36 +568,14 @@ class RealFactCheckerAgent:
         ])
         
         try:
-            # Call DigitalOcean GenAI Fact Checker Agent directly
+            # Call ADK Fact Checker Agent directly
             headers = {
-                'Authorization': f'Bearer {genai_config["access_token"]}',
+                'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
-            # Use the deployed agent endpoint
-            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
-            
-            payload = {
-                'input': f"""Review the research and risk assessment for accuracy.
-
-Ingredient: {research_data['ingredient']}
-Pet Type: {pet_type}
-Proposed Risk Level: {risk_level}
-
-Research Data:
-{research_content}
-
-Provide:
-1. Validation of the risk level (confirm or suggest correction)
-2. Key toxic mechanisms if applicable
-3. Specific symptoms to watch for
-4. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
-
-Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sources"""
-            }
-            
-            # Use the deployed agent endpoint
-            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
+            # Use the correct ADK agent endpoint
+            agent_url = adk_config['factcheck_agent_url']
             
             payload = {
                 'input': f"""Review the research and risk assessment for accuracy.
@@ -756,11 +625,11 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
                 
                 return research_data
             else:
-                logger.error(f"GenAI Fact Check Agent API error: {response.status_code} - {response.text}")
+                logger.error(f"ADK Fact Check Agent API error: {response.status_code} - {response.text}")
                 raise Exception(f"Fact Checker Agent API error: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"DigitalOcean GenAI fact checking failed: {e}")
+            logger.error(f"ADK fact checking failed: {e}")
             raise Exception(f"Fact Checker Agent temporarily unavailable: {e}")
     
     def _fallback_fact_check(self, research_data, risk_level, pet_type):
@@ -1034,7 +903,7 @@ class AIMultiAgentSystem:
         return descriptions.get(risk_level, 'requires caution')
 
 # Initialize the AI-powered multi-agent system - agents are required
-logger.info("🤖 Initializing AI-Powered Multi-Agent System with DigitalOcean GenAI")
+logger.info("🤖 Initializing AI-Powered Multi-Agent System with ADK Agents")
 real_agents = AIMultiAgentSystem()
 
 @app.route('/')
@@ -1114,16 +983,13 @@ def health_check():
             'fact_checker_agent': 'active',
             'formatter_agent': 'active'
         },
-        'digitalocean_genai_enabled': genai_enabled,
+        'adk_enabled': adk_enabled,
         'cache_stats': cache_stats,
-        'genai_config': {
-            'access_token_configured': bool(genai_config['access_token']),
-            'research_agent_id': genai_config['research_agent_id'],
-            'risk_agent_id': genai_config['risk_agent_id'],
-            'factcheck_agent_id': genai_config['factcheck_agent_id'],
-            'project_id': genai_config['project_id'],
-            'region': genai_config['region'],
-            'inference_url': genai_config['inference_url']
+        'adk_config': {
+            'access_token_configured': bool(adk_config['access_token']),
+            'research_agent_url': adk_config['research_agent_url'],
+            'risk_agent_url': adk_config['risk_agent_url'],
+            'factcheck_agent_url': adk_config['factcheck_agent_url']
         }
     })
 
