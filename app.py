@@ -522,7 +522,7 @@ Provide detailed, evidence-based information with specific source citations and 
             }
             
             # Use the deployed agent endpoint - agents are deployed services with their own URLs
-            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['research_agent_id']}/invoke"
+            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['research_agent_id']}/invoke"
             
             payload = {
                 'input': f"""RESEARCH TASK: {query}
@@ -632,7 +632,7 @@ Respond with ONLY the risk level: HIGH, MEDIUM, LOW, or NO"""
             }
             
             # Use the deployed agent endpoint
-            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['risk_agent_id']}/invoke"
+            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['risk_agent_id']}/invoke"
             
             payload = {
                 'input': f"""Analyze the research data and categorize the risk level for {pet_type}s.
@@ -730,7 +730,7 @@ Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sou
             }
             
             # Use the deployed agent endpoint
-            agent_url = f"https://api.digitalocean.com/v2/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
+            agent_url = f"https://api.digitalocean.com/v1/genai/agents/{genai_config['factcheck_agent_id']}/invoke"
             
             payload = {
                 'input': f"""Review the research and risk assessment for accuracy.
