@@ -30,12 +30,20 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
-# Initialize ADK Agent configuration
+# Initialize ADK Agent configuration using validated environment variables
 adk_config = {
-    'research_agent_url': 'https://agents.do-ai.run/fc9c0fe5-f6b5-4da2-9bbb-26d200eccce4/research_agent_deploy/run',
-    'risk_agent_url': 'https://agents.do-ai.run/dfeaa36e-d5f0-4bb4-8ecd-675403bb1295/risk_analysis_agent_deploy/run',
-    'factcheck_agent_url': 'https://agents.do-ai.run/0cdb9493-9bbf-4c2a-9185-0abc062e5087/fact_checker_agent_deploy/run',
-    'access_token': os.getenv('DIGITALOCEAN_TOKEN')
+    'research_agent_id': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID'),
+    'risk_agent_id': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_ID'),
+    'factcheck_agent_id': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID'),
+    'project_id': os.getenv('DIGITALOCEAN_GENAI_PROJECT_ID'),
+    'model_id': os.getenv('DIGITALOCEAN_GENAI_MODEL_ID'),
+    'region': os.getenv('DIGITALOCEAN_GENAI_REGION', 'tor1'),
+    'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL', 'https://inference.do-ai.run/v1'),
+    'access_token': os.getenv('DIGITALOCEAN_TOKEN') or os.getenv('DIGITALOCEAN_API_TOKEN'),
+    # Use validated agent deployment URLs directly
+    'research_agent_url': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_URL'),
+    'risk_agent_url': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_URL'),
+    'factcheck_agent_url': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_URL')
 }
 
 # Check if all required ADK configuration is available

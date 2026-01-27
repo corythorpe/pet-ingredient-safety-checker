@@ -71,6 +71,7 @@ cache/
 *.key
 *.pem
 secrets/
+api_key.txt
 
 # AI Agent Documentation (local only - not for public repo)
 PROJECT_OVERVIEW.md
