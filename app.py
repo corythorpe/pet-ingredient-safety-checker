@@ -910,9 +910,9 @@ class AIMultiAgentSystem:
         }
         return descriptions.get(risk_level, 'requires caution')
 
-# Initialize the AI-powered multi-agent system - agents are required
-logger.info("🤖 Initializing AI-Powered Multi-Agent System with ADK Agents")
-real_agents = AIMultiAgentSystem()
+# Initialize the knowledge-based multi-agent system for reliable results
+logger.info("🤖 Initializing Knowledge-Based Multi-Agent System for reliable results")
+real_agents = RealMultiAgentSystem()
 
 @app.route('/')
 def index():
