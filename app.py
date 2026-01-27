@@ -52,10 +52,8 @@ adk_enabled = bool(adk_config['access_token'])
 if adk_enabled:
     logger.info("✅ ADK agents configured - using deployed agent endpoints")
 else:
-    logger.error("❌ ADK configuration missing - application requires DIGITALOCEAN_TOKEN")
-    logger.error("Required environment variables:")
-    logger.error("- DIGITALOCEAN_TOKEN")
-    raise Exception("Missing required ADK configuration")
+    logger.info("⚠️ ADK configuration missing - using knowledge-based system only")
+    adk_enabled = False
 
 class IngredientCache:
     """File-based cache for ingredient lookups with 15-day expiration"""
