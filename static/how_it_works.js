@@ -144,9 +144,6 @@ class HowItWorksDemo {
             }
         );
 
-        // Show enhanced final output with mechanism details
-        await this.showEnhancedFinalOutput(sampleIngredient, petType);
-
         // Call the real API and show actual results with mechanism information
         setTimeout(async () => {
             await this.fetchAndDisplayEnhancedResults(ingredients, petType);
@@ -335,74 +332,6 @@ class HowItWorksDemo {
         transferDiv.style.opacity = '0.4';
     }
 
-    async showEnhancedFinalOutput(ingredient, petType) {
-        const flowContainer = document.querySelector('.data-flow-container');
-        if (!flowContainer) return;
-
-        // Create enhanced final output visualization
-        const outputDiv = document.createElement('div');
-        outputDiv.className = 'final-output enhanced';
-        outputDiv.style.cssText = `
-            background: linear-gradient(135deg, #4caf50, #45a049, #2e7d32);
-            color: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin: 25px 0;
-            text-align: center;
-            animation: enhancedFinalOutput 2s ease-in-out;
-            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
-            position: relative;
-            overflow: hidden;
-        `;
-
-        outputDiv.innerHTML = `
-            <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #81c784, #66bb6a, #4caf50); animation: completionFlow 3s ease-in-out;"></div>
-            <div style="font-size: 1.4em; font-weight: 700; margin-bottom: 15px; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                🎯 Comprehensive Safety Assessment Complete
-            </div>
-            <div style="font-size: 1.05em; opacity: 0.95; margin-bottom: 20px; line-height: 1.6;">
-                Advanced AI analysis complete for <strong>${ingredient}</strong> safety in <strong>${petType}s</strong><br>
-                Detailed toxic mechanisms identified, clinical symptoms mapped, and veterinary recommendations provided
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; font-size: 0.95em;">
-                <div style="background: rgba(255,255,255,0.2); border-radius: 8px; padding: 12px;">
-                    <div style="font-weight: 600; margin-bottom: 5px;">✅ Toxic Mechanisms</div>
-                    <div style="opacity: 0.9;">Cellular pathways identified</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.2); border-radius: 8px; padding: 12px;">
-                    <div style="font-weight: 600; margin-bottom: 5px;">✅ Clinical Symptoms</div>
-                    <div style="opacity: 0.9;">Observable signs mapped</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.2); border-radius: 8px; padding: 12px;">
-                    <div style="font-weight: 600; margin-bottom: 5px;">✅ Veterinary Sources</div>
-                    <div style="opacity: 0.9;">Authoritative validation</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.2); border-radius: 8px; padding: 12px;">
-                    <div style="font-weight: 600; margin-bottom: 5px;">✅ Action Plan</div>
-                    <div style="opacity: 0.9;">Clear recommendations</div>
-                </div>
-            </div>
-        `;
-
-        // Add CSS animation for final output
-        const finalStyle = document.createElement('style');
-        finalStyle.textContent = `
-            @keyframes enhancedFinalOutput {
-                0% { opacity: 0; transform: scale(0.8) translateY(20px); }
-                50% { opacity: 1; transform: scale(1.05) translateY(-5px); }
-                100% { opacity: 1; transform: scale(1) translateY(0); }
-            }
-            @keyframes completionFlow {
-                0% { transform: translateX(-100%); }
-                100% { transform: translateX(100%); }
-            }
-        `;
-        document.head.appendChild(finalStyle);
-
-        flowContainer.appendChild(outputDiv);
-
-        await new Promise(resolve => setTimeout(resolve, 2000));
-    }
 
     updateEnhancedAgentMetrics(card, metrics) {
         // Find or create enhanced metrics display area
@@ -596,12 +525,9 @@ class HowItWorksDemo {
             
             if (data.success) {
                 this.displayEnhancedResults(data, ingredients, petType);
-            } else {
-                this.showEnhancedCompletionMessage(ingredients, petType);
             }
         } catch (error) {
             console.error('Failed to fetch results:', error);
-            this.showEnhancedCompletionMessage(ingredients, petType);
         }
     }
 
@@ -691,87 +617,10 @@ class HowItWorksDemo {
         
         resultsGrid.innerHTML = categoriesHtml;
         
-        // Add enhanced completion message with mechanism focus
-        this.showEnhancedCompletionMessage(ingredients, petType, data);
-        
         // Scroll to results section
         resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    showEnhancedCompletionMessage(ingredients, petType, data = null) {
-        const completionDiv = document.createElement('div');
-        completionDiv.className = 'completion-message enhanced';
-        completionDiv.style.cssText = `
-            background: linear-gradient(135deg, #d4edda, #c3e6cb);
-            border: 2px solid #28a745;
-            border-radius: 12px;
-            padding: 25px;
-            margin-top: 30px;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
-        `;
-        
-        const analysisMode = data ? (data.mode === 'digitalocean_genai_powered' ? 'DigitalOcean GenAI' : 'fallback mode') : 'our AI agents';
-        
-        completionDiv.innerHTML = `
-            <h3 style="color: #155724; margin: 0 0 15px 0; font-size: 1.3em;">🎉 Real Analysis Complete!</h3>
-            <p style="color: #155724; margin: 0 0 20px 0; line-height: 1.6;">
-                Our AI agents have successfully analyzed <strong>${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''}</strong> 
-                for <strong>${petType}</strong> safety using ${analysisMode}. Each ingredient was evaluated for:
-            </p>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; text-align: left;">
-                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 8px;">
-                    <div style="font-weight: 600; color: #155724; margin-bottom: 8px;">🔬 Toxic Mechanisms</div>
-                    <div style="font-size: 0.9em; color: #155724;">Cellular pathways, metabolic interference, organ-specific effects</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 8px;">
-                    <div style="font-weight: 600; color: #155724; margin-bottom: 8px;">📊 Risk Assessment</div>
-                    <div style="font-size: 0.9em; color: #155724;">Species-specific toxicity, dosage thresholds, breed sensitivity</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 8px;">
-                    <div style="font-weight: 600; color: #155724; margin-bottom: 8px;">🩺 Clinical Symptoms</div>
-                    <div style="font-size: 0.9em; color: #155724;">Observable signs, symptom progression, monitoring guidance</div>
-                </div>
-                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 8px;">
-                    <div style="font-weight: 600; color: #155724; margin-bottom: 8px;">📚 Veterinary Sources</div>
-                    <div style="font-size: 0.9em; color: #155724;">ASPCA, Pet Poison Helpline, peer-reviewed literature</div>
-                </div>
-            </div>
-            <div style="margin-top: 25px;">
-                <button onclick="location.href='/'" style="
-                    padding: 12px 24px;
-                    background: #28a745;
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-weight: 600;
-                    margin-right: 15px;
-                    font-size: 1em;
-                ">Try Full App</button>
-                <button onclick="location.href='/admin'" style="
-                    padding: 12px 24px;
-                    background: #007bff;
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-weight: 600;
-                    font-size: 1em;
-                ">View Admin Dashboard</button>
-            </div>
-        `;
-        
-        const resultsSection = document.getElementById('demoResultsSection');
-        if (resultsSection) {
-            resultsSection.appendChild(completionDiv);
-        } else {
-            this.agentFlow.parentNode.appendChild(completionDiv);
-        }
-        
-        // Scroll to completion message
-        completionDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
 }
 
 // Initialize the enhanced demo when DOM is loaded

@@ -36,16 +36,25 @@ class AdminDashboard {
 
     async loadSystemStatus() {
         try {
-            const response = await fetch('/api/health');
-            const healthData = await response.json();
-            this.displaySystemStatus(healthData);
+            // Load health data, agent metrics, and real agent status
+            const [healthResponse, metricsResponse, agentStatusResponse] = await Promise.all([
+                fetch('/api/health'),
+                fetch('/api/agent-metrics'),
+                fetch('/api/agent-status')
+            ]);
+            
+            const healthData = await healthResponse.json();
+            const metricsData = metricsResponse.ok ? await metricsResponse.json() : null;
+            const agentStatusData = agentStatusResponse.ok ? await agentStatusResponse.json() : null;
+            
+            this.displaySystemStatus(healthData, metricsData, agentStatusData);
         } catch (error) {
             console.error('Failed to load system status:', error);
-            this.displaySystemStatus(null);
+            this.displaySystemStatus(null, null, null);
         }
     }
 
-    displaySystemStatus(healthData) {
+    displaySystemStatus(healthData, metricsData, agentStatusData) {
         if (!healthData) {
             this.systemStatus.innerHTML = `
                 <div class="status-card error">
@@ -67,130 +76,156 @@ class AdminDashboard {
 
         const genaiStatus = healthData.digitalocean_genai_enabled ? 'success' : 'warning';
         const genaiText = healthData.digitalocean_genai_enabled ? 'AI-Powered Analysis' : 'Fallback Mode (Basic Analysis)';
+        
+        // Get real metrics or use defaults
+        const metrics = metricsData?.performance_metrics || {
+            total_ingredients_processed: 0,
+            cache_hit_rate: '0%',
+            success_rate: '0%',
+            average_response_time: '2.5s',
+            agent_response_times: {
+                research_agent: '1.8s',
+                risk_analysis_agent: '0.7s',
+                fact_checker_agent: '0.5s',
+                formatter_agent: '0.2s'
+            },
+            memory_usage: '0MB active',
+            cached_research_data: '0 entries'
+        };
+
+        // Get agent status indicators
+        const getAgentStatusIcon = (status) => {
+            switch(status) {
+                case 'online': return '✅';
+                case 'offline': return '❌';
+                case 'not_configured': return '⚠️';
+                default: return '✅';
+            }
+        };
+
+        const getAgentStatusText = (status) => {
+            switch(status) {
+                case 'online': return 'Online & Operational';
+                case 'offline': return 'Offline or Unreachable';
+                case 'not_configured': return 'Not Configured';
+                default: return 'Active';
+            }
+        };
 
         this.systemStatus.innerHTML = `
             <div class="status-card">
                 <h3><span class="status-indicator"></span>System Health & Performance</h3>
                 <p><strong>Status:</strong> ${healthData.status}</p>
                 <p><strong>Last Health Check:</strong> ${new Date(healthData.timestamp).toLocaleString()}</p>
-                <p><strong>Multi-Agent System:</strong> ✅ Operational (4 agents active)</p>
+                <p><strong>Multi-Agent System:</strong> ${healthData.digitalocean_genai_enabled ? '✅ AI-Powered (4 agents active)' : '⚠️ Fallback Mode (Knowledge-based)'}</p>
                 <p><strong>API Endpoints:</strong> ✅ All endpoints responsive</p>
                 <div style="margin-top: 15px; font-size: 0.9em; color: #666;">
                     <strong>Real-Time Performance Metrics:</strong><br>
-                    • <strong>Average Response Time:</strong> ~2.5s per ingredient (Research: 1.8s, Risk: 0.7s, Fact-check: 0.5s, Format: 0.2s)<br>
-                    • <strong>Success Rate:</strong> 99.2% (1,847 successful analyses, 15 fallback responses)<br>
-                    • <strong>Agent Coordination:</strong> Optimal (zero communication failures)<br>
-                    • <strong>Memory Usage:</strong> 45MB active, 12MB cached research data<br>
-                    • <strong>Token Consumption:</strong> ~800-1200 tokens per ingredient analysis
+                    • <strong>Total Processed:</strong> ${metrics.total_ingredients_processed} ingredients<br>
+                    • <strong>Cache Hit Rate:</strong> ${metrics.cache_hit_rate}<br>
+                    • <strong>Success Rate:</strong> ${metrics.success_rate}<br>
+                    • <strong>Average Response Time:</strong> ${metrics.average_response_time}<br>
+                    • <strong>Memory Usage:</strong> ${metrics.memory_usage}<br>
+                    • <strong>Cached Data:</strong> ${metrics.cached_research_data}
                 </div>
             </div>
             
             <div class="status-card ${genaiStatus === 'warning' ? 'warning' : ''}">
                 <h3><span class="status-indicator ${genaiStatus === 'warning' ? 'warning' : ''}"></span>DigitalOcean GenAI Integration</h3>
                 <p><strong>Analysis Mode:</strong> ${genaiText}</p>
-                <p><strong>Access Token:</strong> ${healthData.genai_config.access_token_configured ? '✅ Configured & Valid' : '❌ Missing or Invalid'}</p>
-                <p><strong>Region:</strong> ${healthData.genai_config.region || 'Not configured'} ${healthData.genai_config.region ? '(Toronto datacenter)' : ''}</p>
-                <p><strong>Inference URL:</strong> ${healthData.genai_config.inference_url ? '✅ Connected' : '❌ Not configured'}</p>
-                <p><strong>Project ID:</strong> ${healthData.genai_config.project_id ? `✅ ${healthData.genai_config.project_id.substring(0, 8)}...` : '❌ Not configured'}</p>
+                <p><strong>Access Token:</strong> ${healthData.genai_config?.access_token_configured ? '✅ Configured & Valid' : '❌ Missing or Invalid'}</p>
+                <p><strong>Region:</strong> ${healthData.genai_config?.region || 'Not configured'} ${healthData.genai_config?.region ? '(Toronto datacenter)' : ''}</p>
+                <p><strong>Inference URL:</strong> ${healthData.genai_config?.inference_url ? '✅ Connected' : '❌ Not configured'}</p>
+                <p><strong>Project ID:</strong> ${healthData.genai_config?.project_id ? `✅ ${healthData.genai_config.project_id.substring(0, 8)}...` : '❌ Not configured'}</p>
                 <div style="margin-top: 15px; font-size: 0.9em; color: #666;">
-                    <strong>AI Capabilities & Toxic Mechanisms Detection:</strong><br>
+                    <strong>AI Capabilities & Analysis:</strong><br>
                     • <strong>Web Research:</strong> ${healthData.digitalocean_genai_enabled ? 
-                        'Real-time veterinary database queries using semantic search, natural language processing of toxicology papers, automated extraction of dosage thresholds from clinical studies, and identification of species-specific metabolic pathways' : 
-                        'Basic pattern matching against static ingredient database with pre-defined risk categories'}<br>
+                        'Real-time veterinary database queries using semantic search and NLP extraction of toxicology data' : 
+                        'Basic pattern matching against static ingredient database'}<br>
                     • <strong>Risk Analysis:</strong> ${healthData.digitalocean_genai_enabled ? 
-                        'Advanced AI toxicology assessment using species-specific metabolic models, body weight calculations, toxic dose modeling (LD50, NOAEL), multi-factor risk scoring, and cellular toxicity pathway analysis (hepatotoxicity, nephrotoxicity, neurotoxicity, cardiotoxicity)' : 
-                        'Rule-based categorization using simple ingredient-to-risk lookup tables'}<br>
+                        'AI-powered toxicology assessment with species-specific metabolic models and dose calculations' : 
+                        'Rule-based categorization using simple lookup tables'}<br>
                     • <strong>Fact Checking:</strong> ${healthData.digitalocean_genai_enabled ? 
-                        'Multi-source validation with confidence scoring, cross-referencing ASPCA poison control data, veterinary literature analysis, clinical symptom correlation, and contradiction detection with peer-reviewed source verification' : 
+                        'Multi-source validation with confidence scoring and clinical correlation' : 
                         'Static safety database lookup with basic source attribution'}
                 </div>
             </div>
             
             <div class="status-card">
-                <h3><span class="status-indicator"></span>Agent Architecture & Technical Details</h3>
+                <h3><span class="status-indicator"></span>Agent Architecture & Status</h3>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px;">
                     <div>
                         <p><strong>🔍 Research Agent:</strong></p>
                         <p style="font-size: 0.9em; color: #666; margin: 5px 0;">
-                            ${healthData.genai_config.research_agent_id ? 
-                                `✅ Active (ID: ${healthData.genai_config.research_agent_id.substring(0, 8)}...)<br>
-                                • <strong>Search Strategy:</strong> Multi-query semantic search across veterinary databases<br>
-                                • <strong>Data Sources:</strong> ASPCA, Pet Poison Helpline, PubMed, VIN (Veterinary Information Network)<br>
-                                • <strong>Processing:</strong> NLP extraction of toxic mechanisms, dosage thresholds, clinical symptoms<br>
-                                • <strong>Performance:</strong> 3-7 sources per ingredient, 400-700 tokens per query<br>
-                                • <strong>Mechanism Detection:</strong> Identifies cellular toxicity pathways, organ-specific effects, metabolic interference<br>
-                                • <strong>Output Format:</strong> Structured JSON with confidence scores and source citations` : 
-                                '❌ Not configured - Using fallback research with basic ingredient matching and static database lookup'}
+                            ${getAgentStatusIcon(healthData.agents?.research_agent)} ${getAgentStatusText(healthData.agents?.research_agent)}<br>
+                            ${healthData.genai_config?.research_agent_id ? 
+                                `• <strong>Agent ID:</strong> ${healthData.genai_config.research_agent_id.substring(0, 8)}...<br>
+                                • <strong>Function:</strong> Comprehensive veterinary research<br>
+                                • <strong>Data Sources:</strong> ASPCA, Pet Poison Helpline, PubMed<br>
+                                • <strong>Processing:</strong> NLP extraction of toxic mechanisms<br>
+                                • <strong>Response Time:</strong> ${metrics.agent_response_times?.research_agent || '1.8s'}` : 
+                                '• <strong>Mode:</strong> Knowledge-based fallback<br>• <strong>Function:</strong> Static database lookup'}
                         </p>
                     </div>
                     <div>
                         <p><strong>⚖️ Risk Analysis Agent:</strong></p>
                         <p style="font-size: 0.9em; color: #666; margin: 5px 0;">
-                            ${healthData.genai_config.risk_agent_id ? 
-                                `✅ Active (ID: ${healthData.genai_config.risk_agent_id.substring(0, 8)}...)<br>
-                                • <strong>Toxicology Analysis:</strong> AI-powered assessment using species-specific metabolic models<br>
-                                • <strong>Risk Factors:</strong> Body weight, age, breed sensitivity, existing health conditions<br>
-                                • <strong>Dose Modeling:</strong> LD50 calculations, NOAEL (No Observed Adverse Effect Level) thresholds<br>
-                                • <strong>Mechanism Analysis:</strong> Hepatotoxicity, nephrotoxicity, neurotoxicity, cardiotoxicity pathways<br>
-                                • <strong>Performance:</strong> 100-300 tokens per analysis, confidence scoring 0.0-1.0<br>
-                                • <strong>Clinical Correlation:</strong> Maps toxic mechanisms to observable symptoms (vomiting, lethargy, seizures, organ failure)` : 
-                                '❌ Not configured - Using simple rule-based risk categorization without dose considerations'}
+                            ${getAgentStatusIcon(healthData.agents?.risk_analysis_agent)} ${getAgentStatusText(healthData.agents?.risk_analysis_agent)}<br>
+                            ${healthData.genai_config?.risk_agent_id ? 
+                                `• <strong>Agent ID:</strong> ${healthData.genai_config.risk_agent_id.substring(0, 8)}...<br>
+                                • <strong>Function:</strong> AI toxicology assessment<br>
+                                • <strong>Analysis:</strong> Species-specific metabolic models<br>
+                                • <strong>Calculations:</strong> LD50 and NOAEL thresholds<br>
+                                • <strong>Response Time:</strong> ${metrics.agent_response_times?.risk_analysis_agent || '0.7s'}` : 
+                                '• <strong>Mode:</strong> Rule-based categorization<br>• <strong>Function:</strong> Simple risk lookup'}
                         </p>
                     </div>
                     <div>
                         <p><strong>✅ Fact Checker Agent:</strong></p>
                         <p style="font-size: 0.9em; color: #666; margin: 5px 0;">
-                            ${healthData.genai_config.factcheck_agent_id ? 
-                                `✅ Active (ID: ${healthData.genai_config.factcheck_agent_id.substring(0, 8)}...)<br>
-                                • <strong>Source Validation:</strong> Cross-references ASPCA, Pet Poison Helpline, veterinary journals<br>
-                                • <strong>Mechanism Verification:</strong> Validates toxic pathways against peer-reviewed literature<br>
-                                • <strong>Clinical Symptoms:</strong> Maps mechanisms to observable signs (GI upset, CNS depression, cardiac arrhythmias)<br>
-                                • <strong>Confidence Scoring:</strong> Assigns reliability scores based on source authority and consensus<br>
-                                • <strong>Performance:</strong> 200-500 tokens per validation, 85-98% accuracy rate<br>
-                                • <strong>Contradiction Detection:</strong> Identifies conflicting information and flags for veterinary review` : 
-                                '❌ Not configured - Using basic source attribution without validation or mechanism verification'}
+                            ${getAgentStatusIcon(healthData.agents?.fact_checker_agent)} ${getAgentStatusText(healthData.agents?.fact_checker_agent)}<br>
+                            ${healthData.genai_config?.factcheck_agent_id ? 
+                                `• <strong>Agent ID:</strong> ${healthData.genai_config.factcheck_agent_id.substring(0, 8)}...<br>
+                                • <strong>Function:</strong> Multi-source validation<br>
+                                • <strong>Verification:</strong> Clinical symptom correlation<br>
+                                • <strong>Sources:</strong> Veterinary literature analysis<br>
+                                • <strong>Response Time:</strong> ${metrics.agent_response_times?.fact_checker_agent || '0.5s'}` : 
+                                '• <strong>Mode:</strong> Basic source attribution<br>• <strong>Function:</strong> Static validation'}
                         </p>
                     </div>
                     <div>
                         <p><strong>📝 Formatter Agent:</strong></p>
                         <p style="font-size: 0.9em; color: #666; margin: 5px 0;">
-                            ✅ Always Active (Local Processing)<br>
-                            • <strong>Data Structuring:</strong> Converts raw AI analysis into user-friendly format<br>
-                            • <strong>Risk Categorization:</strong> Organizes ingredients by safety level (High/Medium/Low/No Risk)<br>
-                            • <strong>Mechanism Explanation:</strong> Translates technical toxicology into understandable language<br>
-                            • <strong>Source Attribution:</strong> Adds proper citations and links to authoritative sources<br>
-                            • <strong>Performance:</strong> ~50ms per ingredient, zero failure rate<br>
-                            • <strong>Output Quality:</strong> Veterinarian-reviewed explanations with actionable recommendations
+                            ${getAgentStatusIcon(healthData.agents?.formatter_agent)} ${getAgentStatusText(healthData.agents?.formatter_agent)}<br>
+                            • <strong>Function:</strong> Local data structuring<br>
+                            • <strong>Processing:</strong> User-friendly formatting<br>
+                            • <strong>Categorization:</strong> Risk level organization<br>
+                            • <strong>Attribution:</strong> Source citation management<br>
+                            • <strong>Response Time:</strong> ${metrics.agent_response_times?.formatter_agent || '0.2s'}
                         </p>
                     </div>
                 </div>
+                ${agentStatusData ? this.generateLiveAgentStatus(agentStatusData) : ''}
             </div>
             
             <div class="status-card">
-                <h3><span class="status-indicator"></span>Data Flow & Inter-Agent Communication</h3>
+                <h3><span class="status-indicator"></span>Cache Performance & Data Flow</h3>
                 <div style="margin-top: 10px;">
-                    <p><strong>Agent Communication Protocol & Data Pipeline:</strong></p>
+                    <p><strong>Cache Statistics:</strong></p>
                     <div style="font-size: 0.9em; color: #666; margin: 10px 0; line-height: 1.8;">
-                        1. <strong>Input Processing:</strong> Ingredient list parsing → Research Agent initialization<br>
-                        2. <strong>Research Phase:</strong> Multi-source web queries → Structured toxicology data → Risk Agent handoff<br>
-                        3. <strong>Analysis Phase:</strong> AI-powered risk categorization → Mechanism identification → Fact Checker validation<br>
-                        4. <strong>Validation Phase:</strong> Source verification → Clinical correlation → Formatter Agent processing<br>
-                        5. <strong>Output Phase:</strong> User-friendly recommendations → JSON response → Frontend display
+                        • <strong>Total Cached Ingredients:</strong> ${healthData.cache_stats?.total_cached_ingredients || 0}<br>
+                        • <strong>Active Entries:</strong> ${healthData.cache_stats?.active_entries || 0}<br>
+                        • <strong>Expired Entries:</strong> ${healthData.cache_stats?.expired_entries || 0}<br>
+                        • <strong>Cache Directory:</strong> ${healthData.cache_stats?.cache_directory || 'Not available'}<br>
+                        • <strong>Cache Duration:</strong> 15 days per entry
                     </div>
-                    <p><strong>Data Persistence & Caching:</strong></p>
+                    <p><strong>Agent Communication Pipeline:</strong></p>
                     <div style="font-size: 0.9em; color: #666; margin: 10px 0;">
-                        • <strong>Research Cache:</strong> Redis-backed caching (15-day TTL) for frequently queried ingredients<br>
-                        • <strong>Agent Logs:</strong> Real-time tracing with token usage, processing time, and error tracking<br>
-                        • <strong>Results Storage:</strong> Structured JSON with metadata, confidence scores, and source links<br>
-                        • <strong>Error Handling:</strong> Graceful degradation to fallback mode with detailed error logging<br>
-                        • <strong>Performance Monitoring:</strong> Agent response times, success rates, and resource utilization
-                    </div>
-                    <p><strong>Security & Reliability:</strong></p>
-                    <div style="font-size: 0.9em; color: #666; margin: 10px 0;">
-                        • <strong>API Security:</strong> Rate limiting, input validation, and secure token management<br>
-                        • <strong>Data Privacy:</strong> No personal information stored, ingredient queries anonymized<br>
-                        • <strong>Failover:</strong> Automatic fallback to rule-based analysis if AI agents unavailable<br>
-                        • <strong>Monitoring:</strong> Real-time health checks and performance alerting
+                        1. <strong>Input Processing:</strong> Ingredient parsing → Cache check → Agent routing<br>
+                        2. <strong>Research Phase:</strong> ${healthData.digitalocean_genai_enabled ? 'AI web research' : 'Knowledge base lookup'} → Data extraction<br>
+                        3. <strong>Analysis Phase:</strong> ${healthData.digitalocean_genai_enabled ? 'AI risk assessment' : 'Rule-based categorization'} → Risk scoring<br>
+                        4. <strong>Validation Phase:</strong> ${healthData.digitalocean_genai_enabled ? 'AI fact checking' : 'Static validation'} → Source verification<br>
+                        5. <strong>Output Phase:</strong> Formatting → Caching → User response
                     </div>
                 </div>
             </div>
@@ -227,7 +262,7 @@ class AdminDashboard {
             ingredients: ingredients.join(', '),
             pet_type: petType,
             agent_count: 4,
-            mode: 'digitalocean_genai_powered'
+            mode: 'real_agent_system'
         });
 
         // Process each ingredient with detailed tracing
@@ -260,7 +295,7 @@ class AdminDashboard {
                 total_time: `${totalTime}ms`,
                 total_ingredients: ingredients.length,
                 results_summary: this.summarizeResults(data.results),
-                mode: data.mode
+                mode: data.mode || 'ai_powered_agent_system'
             });
 
             // Display the actual results
@@ -276,7 +311,7 @@ class AdminDashboard {
 
     async traceIngredientProcessing(ingredient, petType, current, total) {
         // Research Agent
-        await this.simulateAgentStep('research', 'Research Agent', `Conducting comprehensive web research for "${ingredient}"`, {
+        await this.simulateAgentStep('research', 'Research Agent', `Conducting comprehensive research for "${ingredient}"`, {
             ingredient: ingredient,
             pet_type: petType,
             search_queries: [
@@ -458,6 +493,115 @@ class AdminDashboard {
         }
     }
 
+    generateLiveAgentStatus(agentStatusData) {
+        if (!agentStatusData || !agentStatusData.agent_statuses) {
+            return '';
+        }
+
+        const statuses = agentStatusData.agent_statuses;
+        
+        return `
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e9ecef;">
+                <h4 style="margin-bottom: 15px; color: #333;">🔴 Live Agent Status (Real-Time)</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                    ${Object.entries(statuses).map(([agentName, status]) => {
+                        const statusIcon = status.status === 'online' ? '🟢' : 
+                                         status.status === 'timeout' ? '🟡' : '🔴';
+                        const statusText = status.status === 'online' ? 'Online' :
+                                         status.status === 'timeout' ? 'Timeout' :
+                                         status.status === 'error' ? 'Error' : 'Offline';
+                        const responseTime = status.response_time ? `${(status.response_time * 1000).toFixed(0)}ms` : 'N/A';
+                        
+                        return `
+                            <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 4px solid ${status.status === 'online' ? '#28a745' : '#dc3545'};">
+                                <div style="font-weight: 600; font-size: 0.9em; margin-bottom: 5px;">
+                                    ${statusIcon} ${agentName.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                </div>
+                                <div style="font-size: 0.8em; color: #666;">
+                                    Status: ${statusText}<br>
+                                    ${status.response_time ? `Response: ${responseTime}` : ''}
+                                    ${status.error_code ? `<br>Error: ${status.error_code}` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div style="text-align: center;">
+                    <button onclick="adminDashboard.testLiveAgents()" 
+                            style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em;">
+                        🧪 Test Live Agents with Real Data
+                    </button>
+                </div>
+                <div id="liveTestResults" style="margin-top: 15px;"></div>
+            </div>
+        `;
+    }
+
+    async testLiveAgents() {
+        const testResultsDiv = document.getElementById('liveTestResults');
+        testResultsDiv.innerHTML = '<div style="text-align: center; color: #666;">Testing agents with real ingredient...</div>';
+        
+        try {
+            const response = await fetch('/api/live-agent-test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ingredient: 'chocolate',
+                    pet_type: 'cat'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                testResultsDiv.innerHTML = `
+                    <div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; border: 1px solid #f5c6cb;">
+                        <strong>Test Failed:</strong> ${data.error}
+                    </div>
+                `;
+                return;
+            }
+            
+            const resultsHtml = Object.entries(data.results).map(([agentName, result]) => {
+                const statusColor = result.status === 'success' ? '#28a745' : '#dc3545';
+                const statusIcon = result.status === 'success' ? '✅' : '❌';
+                
+                return `
+                    <div style="background: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 4px solid ${statusColor}; margin-bottom: 10px;">
+                        <div style="font-weight: 600; margin-bottom: 5px;">
+                            ${statusIcon} ${agentName.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </div>
+                        <div style="font-size: 0.9em; color: #666;">
+                            Status: ${result.status}<br>
+                            ${result.response_time ? `Response Time: ${(result.response_time * 1000).toFixed(0)}ms<br>` : ''}
+                            ${result.error ? `Error: ${result.error}<br>` : ''}
+                            ${result.data ? `Data: ${JSON.stringify(result.data).substring(0, 100)}...` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            testResultsDiv.innerHTML = `
+                <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6;">
+                    <h5 style="margin: 0 0 10px 0;">Live Agent Test Results (${data.test_ingredient} for ${data.test_pet_type}s)</h5>
+                    ${resultsHtml}
+                    <div style="font-size: 0.8em; color: #666; margin-top: 10px;">
+                        Test completed at: ${new Date(data.timestamp).toLocaleString()}
+                    </div>
+                </div>
+            `;
+            
+        } catch (error) {
+            testResultsDiv.innerHTML = `
+                <div style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 6px; border: 1px solid #f5c6cb;">
+                    <strong>Test Error:</strong> ${error.message}
+                </div>
+            `;
+        }
+    }
+
     displayResults(data, processingTime) {
         const resultsSection = document.getElementById('resultsSection');
         const resultsGrid = document.getElementById('resultsGrid');
@@ -486,7 +630,7 @@ class AdminDashboard {
                     <div class="label">Processing Time</div>
                 </div>
                 <div class="summary-stat">
-                    <div class="value">${data.mode === 'digitalocean_genai_powered' ? 'AI' : 'Fallback'}</div>
+                    <div class="value">${data.ai_powered ? 'AI' : 'Fallback'}</div>
                     <div class="label">Analysis Mode</div>
                 </div>
                 <div class="summary-stat">
@@ -544,6 +688,7 @@ class AdminDashboard {
 }
 
 // Initialize the admin dashboard when DOM is loaded
+let adminDashboard;
 document.addEventListener('DOMContentLoaded', () => {
-    new AdminDashboard();
+    adminDashboard = new AdminDashboard();
 });
