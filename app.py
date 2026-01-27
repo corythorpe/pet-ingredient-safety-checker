@@ -471,14 +471,14 @@ class RealResearchAgent:
         """Use ADK Research Agent for REAL web research"""
         
         try:
-            # Call ADK Research Agent directly
+            # Call ADK Research Agent directly using Agent Workspace URL
             headers = {
                 'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
-            # Use the correct ADK agent endpoint
-            agent_url = adk_config['research_agent_url']
+            # Use the correct Agent Workspace endpoint
+            agent_url = "https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run"
             
             payload = {
                 'ingredient': query.split()[0],  # Extract ingredient from query
@@ -528,14 +528,14 @@ class RealRiskAnalysisAgent:
             return 'medium'  # Default to medium risk if no research data
         
         try:
-            # Call ADK Risk Analysis Agent directly
+            # Call ADK Risk Analysis Agent directly using Agent Workspace URL
             headers = {
                 'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
-            # Use the correct ADK agent endpoint
-            agent_url = adk_config['risk_agent_url']
+            # Use the correct Agent Workspace endpoint
+            agent_url = "https://agents.do-ai.run/44227105-4e0f-479d-9717-3d5694b87778/risk_analysis_agent_deploy/run"
             
             payload = {
                 'ingredient': research_data['ingredient'],
@@ -576,14 +576,14 @@ class RealFactCheckerAgent:
         ])
         
         try:
-            # Call ADK Fact Checker Agent directly
+            # Call ADK Fact Checker Agent directly using Agent Workspace URL
             headers = {
                 'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
             }
             
-            # Use the correct ADK agent endpoint
-            agent_url = adk_config['factcheck_agent_url']
+            # Use the correct Agent Workspace endpoint
+            agent_url = "https://agents.do-ai.run/20acedf1-e2e8-4910-b710-ca6b7fa9e3a2/fact_checker_agent_deploy/run"
             
             payload = {
                 'input': f"""Review the research and risk assessment for accuracy.
