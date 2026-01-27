@@ -35,23 +35,40 @@ class AdminDashboard {
     }
 
     async loadSystemStatus() {
+        let healthData = null;
+        let metricsData = null;
+        let agentStatusData = null;
+
         try {
-            // Load health data, agent metrics, and real agent status
-            const [healthResponse, metricsResponse, agentStatusResponse] = await Promise.all([
-                fetch('/api/health'),
-                fetch('/api/agent-metrics'),
-                fetch('/api/agent-status')
-            ]);
-            
-            const healthData = await healthResponse.json();
-            const metricsData = metricsResponse.ok ? await metricsResponse.json() : null;
-            const agentStatusData = agentStatusResponse.ok ? await agentStatusResponse.json() : null;
-            
-            this.displaySystemStatus(healthData, metricsData, agentStatusData);
+            // Try to load health data first (most important)
+            const healthResponse = await fetch('/api/health');
+            if (healthResponse.ok) {
+                healthData = await healthResponse.json();
+            }
         } catch (error) {
-            console.error('Failed to load system status:', error);
-            this.displaySystemStatus(null, null, null);
+            console.error('Failed to load health data:', error);
         }
+
+        // Try to load additional data, but don't fail if these endpoints don't exist
+        try {
+            const metricsResponse = await fetch('/api/agent-metrics');
+            if (metricsResponse.ok) {
+                metricsData = await metricsResponse.json();
+            }
+        } catch (error) {
+            console.warn('Agent metrics endpoint not available:', error);
+        }
+
+        try {
+            const agentStatusResponse = await fetch('/api/agent-status');
+            if (agentStatusResponse.ok) {
+                agentStatusData = await agentStatusResponse.json();
+            }
+        } catch (error) {
+            console.warn('Agent status endpoint not available:', error);
+        }
+
+        this.displaySystemStatus(healthData, metricsData, agentStatusData);
     }
 
     displaySystemStatus(healthData, metricsData, agentStatusData) {
