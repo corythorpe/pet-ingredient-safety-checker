@@ -33,21 +33,12 @@ services:
   - key: DIGITALOCEAN_TOKEN
     scope: RUN_TIME
     type: SECRET
-  # - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
-  #   scope: RUN_TIME
-  #   type: SECRET
-  # - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
-  #   scope: RUN_TIME
-  #   type: SECRET
-  # - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
-  #   scope: RUN_TIME
-  #   type: SECRET
-  # - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_URL
-  #   scope: RUN_TIME
-  #   type: SECRET
-  # - key: DIGITALOCEAN_GENAI_RISK_AGENT_URL
-  #   scope: RUN_TIME
-  #   type: SECRET
-  # - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_URL
-  #   scope: RUN_TIME
-  #   type: SECRET
+  - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_URL
+    scope: RUN_TIME
+    value: "https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run"
+  - key: DIGITALOCEAN_GENAI_RISK_AGENT_URL
+    scope: RUN_TIME
+    value: "https://agents.do-ai.run/44227105-4e0f-479d-9717-3d5694b87778/risk_analysis_agent_deploy/run"
+  - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_URL
+    scope: RUN_TIME
+    value: "https://agents.do-ai.run/20acedf1-e2e8-4910-b710-ca6b7fa9e3a2/fact_checker_agent_deploy/run"
