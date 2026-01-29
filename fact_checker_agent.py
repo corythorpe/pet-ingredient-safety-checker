@@ -36,7 +36,7 @@ async def fact_check_and_validate(state: FactCheckState) -> FactCheckState:
     research_data = state["research_data"]
     risk_level = state["risk_level"]
     
-    fact_check_prompt = f"""Review the research and risk assessment for accuracy.
+    fact_check_prompt = f"""STRICT FACT-CHECK AND SOURCE VALIDATION - ZERO TOLERANCE FOR VAGUE SOURCES
 
 Ingredient: {ingredient}
 Pet Type: {pet_type}
@@ -45,23 +45,71 @@ Proposed Risk Level: {risk_level}
 Research Data:
 {research_data}
 
-Provide:
-1. Validation of the risk level (confirm or suggest correction)
-2. Key toxic mechanisms if applicable
-3. Specific symptoms to watch for
-4. Authoritative sources (ASPCA, Pet Poison Helpline, veterinary journals)
-5. Emergency contact information
+CRITICAL VALIDATION REQUIREMENTS - FAIL IF ANY ARE NOT MET:
+1. Research must contain AT LEAST 2 specific, direct source URLs about this exact ingredient
+2. Each source must be a direct link to specific content about THIS ingredient (not search results or homepages)
+3. Sources must provide specific toxicity mechanisms OR specific safety confirmations
+4. If ANY source is generic, vague, or a search URL, FAIL validation immediately
+5. Risk assessment must be backed by specific, verifiable data from authoritative sources
 
-Format as JSON with keys: validated_risk, mechanism, symptoms, authoritative_sources, emergency_contacts
+MANDATORY SOURCE VALIDATION CHECKLIST:
+□ At least 2 direct, specific URLs present
+□ Each URL leads to ingredient-specific content (not general pages)
+□ Sources contain specific toxicity data OR safety confirmations
+□ No search URLs (containing "search?", "/search/", etc.)
+□ No generic homepages without specific ingredient information
+□ Sources are from authoritative veterinary/toxicology organizations
 
-Example format:
+ACCEPTABLE SOURCE FORMATS (must be ingredient-specific):
+✓ https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/[specific-ingredient]
+✓ https://www.petpoisonhelpline.com/poison/[specific-ingredient]/
+✓ Direct DOI links to peer-reviewed studies about this ingredient
+✓ Specific FDA/USDA safety assessments with document numbers
+✓ VCA Animal Hospital pages about this specific ingredient
+
+AUTOMATIC VALIDATION FAILURE TRIGGERS:
+✗ https://www.aspca.org/search?query=anything
+✗ https://www.aspca.org/pet-care/animal-poison-control (homepage only)
+✗ https://www.petpoisonhelpline.com/search/
+✗ Generic "pet safety" or "toxic foods" lists
+✗ Vague references like "veterinary sources" without specific citations
+✗ Blog posts, forums, or non-authoritative websites
+✗ Fewer than 2 specific sources
+✗ Sources that don't mention this specific ingredient
+
+VALIDATION PROCESS:
+1. Count specific, direct source URLs in research data
+2. Verify each source is ingredient-specific (not general pet safety)
+3. Confirm sources provide detailed toxicity OR safety information
+4. Check that risk assessment is supported by source evidence
+5. If ANY validation step fails, set validation_failed: true
+
+RESPONSE FORMAT (JSON only):
+If validation PASSES (all requirements met):
 {{
-    "validated_risk": "high",
-    "mechanism": "Contains theobromine which is toxic to pets",
-    "symptoms": "Vomiting, diarrhea, increased heart rate, seizures",
-    "authoritative_sources": ["ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control"],
+    "validation_failed": false,
+    "validated_risk": "{risk_level}",
+    "mechanism": "[specific mechanism from sources]",
+    "symptoms": "[specific symptoms from sources]",
+    "specific_sources": ["array of verified specific URLs only"],
+    "source_quality": "high - specific authoritative sources",
     "emergency_contacts": "ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
-}}"""
+}}
+
+If validation FAILS (any requirement not met):
+{{
+    "validation_failed": true,
+    "failure_reason": "[specific reason: insufficient sources/generic sources/vague information/etc.]",
+    "validated_risk": "error",
+    "mechanism": "Unable to determine - insufficient specific sources",
+    "symptoms": "Cannot reliably determine symptoms without specific authoritative sources",
+    "specific_sources": [],
+    "source_quality": "insufficient - lacks specific authoritative sources",
+    "emergency_contacts": "ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661",
+    "recommendation": "Consult veterinarian immediately for professional assessment"
+}}
+
+CRITICAL: If research data lacks specific sources or contains vague information, validation MUST fail."""
 
     response = await llm.ainvoke(fact_check_prompt)
     fact_check_response = response.content

@@ -33,30 +33,57 @@ async def conduct_research(state: ResearchState) -> ResearchState:
     
     research_prompt = f"""RESEARCH TASK: {ingredient} safety for {pet_type}s
 
-Conduct comprehensive research on this ingredient's safety for pets. Your research should include:
+CRITICAL SOURCE REQUIREMENTS - ZERO TOLERANCE FOR VAGUE SOURCES:
+1. You MUST provide SPECIFIC, DIRECT sources - no generic search URLs or homepages
+2. Each source must be a direct link to a specific article, study, or official statement about THIS EXACT ingredient
+3. If you cannot find AT LEAST 2 specific, authoritative sources, you MUST return "INSUFFICIENT_DATA"
+4. Do NOT provide generic website homepages, search result URLs, or general safety pages
+5. Sources must contain specific toxicity data, mechanisms, or safety confirmations for THIS ingredient
 
-1. TOXICITY ANALYSIS:
-   - Specific toxic compounds and mechanisms
-   - Lethal dose ranges and toxic thresholds
-   - Metabolic pathways and how pets process this ingredient
+REQUIRED SOURCE VALIDATION:
+Before providing any safety information, verify you have:
+- At least 2 direct, specific sources about this exact ingredient
+- Specific toxicity mechanisms OR specific safety confirmations
+- Documented symptoms OR confirmed absence of toxicity
+- Peer-reviewed studies, official veterinary guidelines, or authoritative toxicology databases
 
-2. CLINICAL EVIDENCE:
-   - Documented cases from veterinary literature
-   - Symptoms and clinical presentations
-   - Treatment protocols and outcomes
+ACCEPTABLE SOURCE EXAMPLES:
+✓ https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/chocolate
+✓ https://www.petpoisonhelpline.com/poison/chocolate/
+✓ Direct DOI links to peer-reviewed veterinary toxicology studies
+✓ Specific FDA/USDA safety assessments with document numbers
+✓ VCA Animal Hospital specific ingredient pages (not search results)
 
-3. AUTHORITATIVE SOURCES:
-   - ASPCA Animal Poison Control findings
-   - Pet Poison Helpline data
-   - Veterinary toxicology journals
-   - FDA/USDA safety assessments
+UNACCEPTABLE SOURCES (AUTOMATIC INSUFFICIENT_DATA):
+✗ https://www.aspca.org/search?query=anything
+✗ https://www.aspca.org/pet-care/animal-poison-control (homepage)
+✗ https://www.petpoisonhelpline.com/search/
+✗ General "pet safety" or "toxic foods" lists without ingredient-specific detail
+✗ Vague references like "veterinary sources" without specific citations
+✗ Blog posts, forums, or non-authoritative websites
 
-4. SPECIES-SPECIFIC CONSIDERATIONS:
-   - Differences between dogs and cats
-   - Breed-specific sensitivities
-   - Age and size considerations
+RESEARCH VALIDATION PROCESS:
+1. Search for specific sources about this exact ingredient
+2. Verify each source contains detailed information about THIS ingredient
+3. Confirm sources provide specific mechanisms, doses, or safety data
+4. If fewer than 2 specific sources found, return INSUFFICIENT_DATA
+5. If sources are vague or general, return INSUFFICIENT_DATA
 
-Provide detailed, evidence-based information with specific source citations and URLs where available. This is for actual veterinary decision-making, so accuracy is critical."""
+RESPONSE FORMAT:
+If sufficient specific sources found (minimum 2 direct sources):
+RESEARCH_STATUS: SUFFICIENT_DATA
+SPECIFIC_SOURCES: [List exact URLs of specific sources]
+TOXICITY_ANALYSIS: [Detailed analysis with source citations]
+CLINICAL_EVIDENCE: [Symptoms and cases with source citations]
+SPECIES_CONSIDERATIONS: [Pet-specific information with sources]
+
+If insufficient specific sources available:
+RESEARCH_STATUS: INSUFFICIENT_DATA
+FAILURE_REASON: Unable to locate at least 2 specific, authoritative sources for {ingredient} safety in {pet_type}s. Available sources are too general, vague, or non-existent for reliable safety determination.
+SEARCH_ATTEMPTED: [Brief description of what was searched]
+RECOMMENDATION: Consult veterinarian immediately for professional assessment.
+
+This is for actual veterinary decision-making - only specific, verifiable sources with detailed ingredient information are acceptable."""
 
     response = await llm.ainvoke(research_prompt)
     state["research_results"] = response.content

@@ -460,6 +460,16 @@
             border-left-color: #28a745;
         }
         
+        .risk-category.error {
+            background: #e2e3e5;
+            border-left-color: #6c757d;
+        }
+        
+        .risk-badge.error {
+            background: #6c757d;
+            color: white;
+        }
+        
         .risk-category h3 {
             margin: 0 0 15px 0;
             font-size: 1.2em;
@@ -616,10 +626,6 @@
             </div>
         </div>
         
-        <div class="system-status" id="systemStatus">
-            <!-- System status cards will be populated here -->
-        </div>
-        
         <div class="agent-trace">
             <h2>🤖 Agent Interaction Tracer</h2>
             <p>Monitor real-time agent communications, token usage, and processing flow</p>
@@ -644,6 +650,10 @@
                     <!-- Trace steps will be populated here -->
                 </div>
             </div>
+        </div>
+        
+        <div class="system-status" id="systemStatus">
+            <!-- System status cards will be populated here -->
         </div>
         
         <div class="results-section" id="resultsSection" style="display: none;">

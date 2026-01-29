@@ -34,7 +34,63 @@ async def analyze_risk(state: RiskAnalysisState) -> RiskAnalysisState:
     pet_type = state["pet_type"]
     research_data = state["research_data"]
     
+    # Check for insufficient data flag from research agent
+    if "INSUFFICIENT_DATA" in research_data or "RESEARCH_STATUS: INSUFFICIENT_DATA" in research_data:
+        state["risk_level"] = "error"
+        state["risk_analysis"] = f"RESEARCH_FAILED: {research_data}"
+        return state
+    
+    # Check for minimal or vague research data
+    if len(research_data.strip()) < 200:
+        state["risk_level"] = "error"
+        state["risk_analysis"] = "INSUFFICIENT_RESEARCH: Research data too minimal for reliable safety determination. Cannot assess risk without adequate specific information."
+        return state
+    
+    # Enhanced vague content detection
+    vague_indicators = [
+        "general", "may be", "could be", "possibly", "search results", "homepage",
+        "search?query=", "/search/", "general information", "broad category",
+        "commonly known", "typically", "usually", "often", "sometimes",
+        "veterinary sources" # without specific citation
+    ]
+    
+    # Check for generic sources that indicate insufficient research
+    generic_source_patterns = [
+        "aspca.org/search", "petpoisonhelpline.com/search", 
+        "aspca.org/pet-care/animal-poison-control" + "$",  # homepage only
+        "general pet safety", "toxic foods list", "common toxins"
+    ]
+    
+    research_lower = research_data.lower()
+    
+    # Check for vague indicators
+    if any(indicator in research_lower for indicator in vague_indicators):
+        state["risk_level"] = "error"
+        state["risk_analysis"] = "INSUFFICIENT_RESEARCH: Research data contains vague or generic information unsuitable for safety determination."
+        return state
+    
+    # Check for generic source patterns
+    if any(pattern in research_lower for pattern in generic_source_patterns):
+        state["risk_level"] = "error"
+        state["risk_analysis"] = "INSUFFICIENT_RESEARCH: Research contains generic sources without specific ingredient information."
+        return state
+    
+    # Verify research contains specific sources (must have at least one direct URL)
+    specific_source_indicators = [
+        "https://", "http://", "doi:", "specific_sources:", "toxicity_analysis:", "clinical_evidence:"
+    ]
+    
+    if not any(indicator in research_lower for indicator in specific_source_indicators):
+        state["risk_level"] = "error"
+        state["risk_analysis"] = "INSUFFICIENT_RESEARCH: No specific sources or detailed analysis found in research data."
+        return state
+    
     risk_prompt = f"""Analyze the research data and categorize the risk level for {pet_type}s.
+
+CRITICAL REQUIREMENTS:
+1. Only proceed if research data contains SPECIFIC, VERIFIABLE information
+2. Each risk assessment must be backed by specific sources cited in the research
+3. If research lacks specific toxicity data, return ERROR instead of guessing
 
 Ingredient: {ingredient}
 Pet Type: {pet_type}
@@ -42,27 +98,28 @@ Pet Type: {pet_type}
 Research Data:
 {research_data}
 
-Risk Categories:
-- HIGH: Toxic, can cause serious illness or death
-- MEDIUM: Can cause moderate health issues, requires caution
-- LOW: Minor concerns, generally safe in small amounts
-- NO: Safe for consumption
+Risk Categories (only assign if research provides specific evidence):
+- HIGH: Toxic, can cause serious illness or death (requires specific toxicity evidence)
+- MEDIUM: Can cause moderate health issues, requires caution (requires specific adverse effect evidence)
+- LOW: Minor concerns, generally safe in small amounts (requires specific safety data)
+- NO: Safe for consumption (requires specific safety confirmation)
+- ERROR: Insufficient specific data for determination
 
-Provide:
-1. Risk level (HIGH, MEDIUM, LOW, or NO)
-2. Detailed analysis explaining the risk assessment
-3. Specific mechanisms of toxicity if applicable
-4. Recommended actions
+VALIDATION REQUIREMENTS:
+- Must have specific toxic mechanisms OR specific safety confirmation
+- Must have documented symptoms OR confirmed absence of toxicity
+- Must cite specific sources, not general references
 
 Format your response as:
-RISK_LEVEL: [HIGH/MEDIUM/LOW/NO]
-ANALYSIS: [Detailed explanation]"""
+RISK_LEVEL: [HIGH/MEDIUM/LOW/NO/ERROR]
+ANALYSIS: [Detailed explanation with source validation]
+SOURCE_QUALITY: [Assessment of source specificity and reliability]"""
 
     response = await llm.ainvoke(risk_prompt)
     analysis_text = response.content
     
     # Extract risk level from response
-    risk_level = "MEDIUM"  # Default
+    risk_level = "ERROR"  # Default to error for safety
     if "RISK_LEVEL: HIGH" in analysis_text:
         risk_level = "HIGH"
     elif "RISK_LEVEL: LOW" in analysis_text:
@@ -71,9 +128,17 @@ ANALYSIS: [Detailed explanation]"""
         risk_level = "NO"
     elif "RISK_LEVEL: MEDIUM" in analysis_text:
         risk_level = "MEDIUM"
+    elif "RISK_LEVEL: ERROR" in analysis_text:
+        risk_level = "ERROR"
     
-    state["risk_level"] = risk_level.lower()
-    state["risk_analysis"] = analysis_text
+    # Convert ERROR to error for consistency
+    if risk_level == "ERROR":
+        state["risk_level"] = "error"
+        state["risk_analysis"] = f"INSUFFICIENT_SPECIFIC_DATA: {analysis_text}"
+    else:
+        state["risk_level"] = risk_level.lower()
+        state["risk_analysis"] = analysis_text
+    
     return state
 
 @entrypoint

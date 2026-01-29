@@ -33,6 +33,27 @@ services:
   - key: DIGITALOCEAN_TOKEN
     scope: RUN_TIME
     type: SECRET
+  - key: DIGITALOCEAN_GENAI_PROJECT_ID
+    scope: RUN_TIME
+    value: "eaef27d1-07e4-4973-9f14-8cd36724af54"
+  - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID
+    scope: RUN_TIME
+    value: "f99d6802-f8e1-49ff-ae6d-a8db1fae08a9"
+  - key: DIGITALOCEAN_GENAI_RISK_AGENT_ID
+    scope: RUN_TIME
+    value: "44227105-4e0f-479d-9717-3d5694b87778"
+  - key: DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID
+    scope: RUN_TIME
+    value: "20acedf1-e2e8-4910-b710-ca6b7fa9e3a2"
+  - key: DIGITALOCEAN_GENAI_MODEL_ID
+    scope: RUN_TIME
+    value: "meta-llama/llama-3.1-8b-instruct"
+  - key: DIGITALOCEAN_GENAI_REGION
+    scope: RUN_TIME
+    value: "tor1"
+  - key: DIGITALOCEAN_GENAI_INFERENCE_URL
+    scope: RUN_TIME
+    value: "https://inference.do-ai.run/v1"
   - key: DIGITALOCEAN_GENAI_RESEARCH_AGENT_URL
     scope: RUN_TIME
     value: "https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run"

@@ -539,16 +539,17 @@ class HowItWorksDemo {
         // Show the results section
         resultsSection.style.display = 'block';
         
-        // Calculate summary statistics
+        // Calculate summary statistics (include error category)
         const totalIngredients = Object.values(data.results).reduce((sum, arr) => sum + arr.length, 0);
         const riskCounts = {
             high: data.results.high?.length || 0,
             medium: data.results.medium?.length || 0,
             low: data.results.low?.length || 0,
-            no: data.results.no?.length || 0
+            no: data.results.no?.length || 0,
+            error: data.results.error?.length || 0
         };
         
-        // Create enhanced summary
+        // Create enhanced summary (include unable to assess when present)
         summaryElement.innerHTML = `
             <div class="demo-summary-stats enhanced">
                 <div class="demo-summary-stat">
@@ -571,15 +572,22 @@ class HowItWorksDemo {
                     <div class="value">${riskCounts.no}</div>
                     <div class="label">Safe</div>
                 </div>
+                ${riskCounts.error > 0 ? `
                 <div class="demo-summary-stat">
-                    <div class="value">${data.mode === 'digitalocean_genai_powered' ? 'AI' : 'Basic'}</div>
+                    <div class="value">${riskCounts.error}</div>
+                    <div class="label">Unable to Assess</div>
+                </div>
+                ` : ''}
+                <div class="demo-summary-stat">
+                    <div class="value">${data.ai_powered || data.mode === 'digitalocean_genai_powered' ? 'AI' : 'Basic'}</div>
                     <div class="label">Mode</div>
                 </div>
             </div>
         `;
         
-        // Create risk category cards with detailed mechanism information
+        // Create risk category cards with detailed mechanism information (include error/unable to assess)
         const riskCategories = [
+            { key: 'error', title: 'Unable to Assess', icon: '❓', description: 'Insufficient data - consult your veterinarian for professional advice' },
             { key: 'high', title: 'High Risk', icon: '🚨', description: 'Dangerous - Immediate veterinary attention required if consumed' },
             { key: 'medium', title: 'Medium Risk', icon: '⚠️', description: 'Caution required - Monitor pet closely, contact vet if symptoms appear' },
             { key: 'low', title: 'Low Risk', icon: '⚡', description: 'Minor concerns - Generally safe in small amounts' },

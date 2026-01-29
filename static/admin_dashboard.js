@@ -91,8 +91,11 @@ class AdminDashboard {
             return;
         }
 
-        const genaiStatus = healthData.digitalocean_genai_enabled ? 'success' : 'warning';
-        const genaiText = healthData.digitalocean_genai_enabled ? 'AI-Powered Analysis' : 'Fallback Mode (Basic Analysis)';
+        // Use actual AI status, not just configuration
+        const actualAiEnabled = healthData.actual_ai_enabled || false;
+        const genaiStatus = actualAiEnabled ? 'success' : 'warning';
+        const genaiText = actualAiEnabled ? 'AI-Powered Analysis' : 'Fallback Mode (Knowledge-Based Analysis)';
+        const agentsOnline = healthData.agents_online_count || 0;
         
         // Get real metrics or use defaults
         const metrics = metricsData?.performance_metrics || {
@@ -113,19 +116,29 @@ class AdminDashboard {
         // Get agent status indicators
         const getAgentStatusIcon = (status) => {
             switch(status) {
-                case 'online': return '✅';
-                case 'offline': return '❌';
+                case 'online': return '🟢';
+                case 'degraded': return '🟡';
+                case 'offline': return '🔴';
+                case 'timeout': return '🟡';
+                case 'error': return '🔴';
+                case 'auth_error': return '🔴';
+                case 'not_deployed': return '🔴';
                 case 'not_configured': return '⚠️';
-                default: return '✅';
+                default: return '⚠️';
             }
         };
 
         const getAgentStatusText = (status) => {
             switch(status) {
                 case 'online': return 'Online & Operational';
+                case 'degraded': return 'Degraded Performance (Temporary Issues)';
                 case 'offline': return 'Offline or Unreachable';
+                case 'timeout': return 'Timeout (May be overloaded)';
+                case 'error': return 'Error Response';
+                case 'auth_error': return 'Authentication Failed';
+                case 'not_deployed': return 'Not Deployed';
                 case 'not_configured': return 'Not Configured';
-                default: return 'Active';
+                default: return 'Unknown Status';
             }
         };
 
@@ -133,7 +146,7 @@ class AdminDashboard {
             <div class="status-card">
                 <h3><span class="status-indicator"></span>System Health & Performance</h3>
                 <p><strong>Status:</strong> ${healthData.status}</p>
-                <p><strong>Last Health Check:</strong> ${new Date(healthData.timestamp).toLocaleString()}</p>
+                <p><strong>Last Health Check:</strong> ${this.formatLocalTime(healthData.timestamp)}</p>
                 <p><strong>Multi-Agent System:</strong> ${healthData.digitalocean_genai_enabled ? '✅ AI-Powered (4 agents active)' : '⚠️ Fallback Mode (Knowledge-based)'}</p>
                 <p><strong>API Endpoints:</strong> ✅ All endpoints responsive</p>
                 <div style="margin-top: 15px; font-size: 0.9em; color: #666;">
@@ -150,6 +163,7 @@ class AdminDashboard {
             <div class="status-card ${genaiStatus === 'warning' ? 'warning' : ''}">
                 <h3><span class="status-indicator ${genaiStatus === 'warning' ? 'warning' : ''}"></span>DigitalOcean GenAI Integration</h3>
                 <p><strong>Analysis Mode:</strong> ${genaiText}</p>
+                ${this.generateFallbackExplanation(healthData)}
                 <p><strong>Access Token:</strong> ${healthData.genai_config?.access_token_configured ? '✅ Configured & Valid' : '❌ Missing or Invalid'}</p>
                 <p><strong>Region:</strong> ${healthData.genai_config?.region || 'Not configured'} ${healthData.genai_config?.region ? '(Toronto datacenter)' : ''}</p>
                 <p><strong>Inference URL:</strong> ${healthData.genai_config?.inference_url ? '✅ Connected' : '❌ Not configured'}</p>
@@ -182,6 +196,7 @@ class AdminDashboard {
                                 • <strong>Processing:</strong> NLP extraction of toxic mechanisms<br>
                                 • <strong>Response Time:</strong> ${metrics.agent_response_times?.research_agent || '1.8s'}` : 
                                 '• <strong>Mode:</strong> Knowledge-based fallback<br>• <strong>Function:</strong> Static database lookup'}
+                            ${healthData.agent_errors?.research_agent ? `<br>• <strong style="color: #dc3545;">Error:</strong> ${healthData.agent_errors.research_agent}` : ''}
                         </p>
                     </div>
                     <div>
@@ -195,6 +210,7 @@ class AdminDashboard {
                                 • <strong>Calculations:</strong> LD50 and NOAEL thresholds<br>
                                 • <strong>Response Time:</strong> ${metrics.agent_response_times?.risk_analysis_agent || '0.7s'}` : 
                                 '• <strong>Mode:</strong> Rule-based categorization<br>• <strong>Function:</strong> Simple risk lookup'}
+                            ${healthData.agent_errors?.risk_analysis_agent ? `<br>• <strong style="color: #dc3545;">Error:</strong> ${healthData.agent_errors.risk_analysis_agent}` : ''}
                         </p>
                     </div>
                     <div>
@@ -208,6 +224,7 @@ class AdminDashboard {
                                 • <strong>Sources:</strong> Veterinary literature analysis<br>
                                 • <strong>Response Time:</strong> ${metrics.agent_response_times?.fact_checker_agent || '0.5s'}` : 
                                 '• <strong>Mode:</strong> Basic source attribution<br>• <strong>Function:</strong> Static validation'}
+                            ${healthData.agent_errors?.fact_checker_agent ? `<br>• <strong style="color: #dc3545;">Error:</strong> ${healthData.agent_errors.fact_checker_agent}` : ''}
                         </p>
                     </div>
                     <div>
@@ -398,7 +415,7 @@ class AdminDashboard {
             <div class="step-header">
                 <div class="step-title">${title}</div>
                 <div class="step-timing">
-                    <span>⏱️ ${new Date().toLocaleTimeString()}</span>
+                    <span>⏱️ ${this.formatLocalTime(new Date().toISOString())}</span>
                 </div>
             </div>
             <div class="step-content">
@@ -605,7 +622,7 @@ class AdminDashboard {
                     <h5 style="margin: 0 0 10px 0;">Live Agent Test Results (${data.test_ingredient} for ${data.test_pet_type}s)</h5>
                     ${resultsHtml}
                     <div style="font-size: 0.8em; color: #666; margin-top: 10px;">
-                        Test completed at: ${new Date(data.timestamp).toLocaleString()}
+                        Test completed at: ${this.formatLocalTime(data.timestamp)}
                     </div>
                 </div>
             `;
@@ -619,6 +636,147 @@ class AdminDashboard {
         }
     }
 
+    generateFallbackExplanation(healthData) {
+        // Use actual AI status instead of just configuration
+        if (healthData.actual_ai_enabled) {
+            return ''; // No explanation needed if AI is actually enabled
+        }
+
+        // Use the fallback reasons provided by the backend
+        const fallbackReasons = healthData.fallback_reasons || [];
+        const config = healthData.genai_config || {};
+        const agents = healthData.agents || {};
+
+        const issues = [];
+
+        // Map fallback reasons to user-friendly explanations
+        const reasonMap = {
+            'missing_access_token': {
+                icon: '🔑',
+                title: 'Missing Access Token',
+                description: 'DigitalOcean API token is not configured or invalid',
+                solution: 'Set DIGITALOCEAN_TOKEN environment variable with a valid API token'
+            },
+            'missing_project_id': {
+                icon: '📁',
+                title: 'Missing Project ID',
+                description: 'DigitalOcean GenAI project ID is not configured',
+                solution: 'Set DIGITALOCEAN_GENAI_PROJECT_ID environment variable'
+            },
+            'missing_research_agent_id': {
+                icon: '🔍',
+                title: 'Missing Research Agent ID',
+                description: 'Research agent ID is not configured',
+                solution: 'Set DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID environment variable'
+            },
+            'missing_risk_agent_id': {
+                icon: '⚖️',
+                title: 'Missing Risk Agent ID',
+                description: 'Risk analysis agent ID is not configured',
+                solution: 'Set DIGITALOCEAN_GENAI_RISK_AGENT_ID environment variable'
+            },
+            'missing_factcheck_agent_id': {
+                icon: '✅',
+                title: 'Missing Fact Checker Agent ID',
+                description: 'Fact checker agent ID is not configured',
+                solution: 'Set DIGITALOCEAN_GENAI_FACTCHECK_AGENT_ID environment variable'
+            },
+            'research_agent_unreachable': {
+                icon: '🔍',
+                title: 'Research Agent Unreachable',
+                description: `Research agent is ${agents.research_agent || 'offline'} and cannot be contacted`,
+                solution: 'Check agent deployment status and network connectivity. Agent may be restarting or experiencing issues.'
+            },
+            'risk_agent_unreachable': {
+                icon: '⚖️',
+                title: 'Risk Analysis Agent Unreachable',
+                description: `Risk analysis agent is ${agents.risk_analysis_agent || 'offline'} and cannot be contacted`,
+                solution: 'Check agent deployment status and network connectivity. Agent may be restarting or experiencing issues.'
+            },
+            'factcheck_agent_unreachable': {
+                icon: '✅',
+                title: 'Fact Checker Agent Unreachable',
+                description: `Fact checker agent is ${agents.fact_checker_agent || 'offline'} and cannot be contacted`,
+                solution: 'Check agent deployment status and network connectivity. Agent may be restarting or experiencing issues.'
+            }
+        };
+
+        // Convert fallback reasons to issues
+        fallbackReasons.forEach(reason => {
+            if (reasonMap[reason]) {
+                issues.push(reasonMap[reason]);
+            }
+        });
+
+        // If no specific reasons provided, add a generic explanation
+        if (issues.length === 0) {
+            issues.push({
+                icon: '❓',
+                title: 'System in Fallback Mode',
+                description: `System is using knowledge-based analysis. ${healthData.agents_online_count || 0} of 3 AI agents are online.`,
+                solution: 'At least 2 agents must be online for AI-powered analysis. Check agent status and configuration.'
+            });
+        }
+
+        const issuesHtml = issues.map(issue => `
+            <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 10px; margin: 8px 0;">
+                <div style="font-weight: 600; color: #856404; margin-bottom: 5px;">
+                    ${issue.icon} ${issue.title}
+                </div>
+                <div style="font-size: 0.9em; color: #856404; margin-bottom: 5px;">
+                    ${issue.description}
+                </div>
+                <div style="font-size: 0.85em; color: #6c757d; font-style: italic;">
+                    <strong>Solution:</strong> ${issue.solution}
+                </div>
+            </div>
+        `).join('');
+
+        return `
+            <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 15px; margin: 15px 0;">
+                <h4 style="color: #721c24; margin: 0 0 10px 0; font-size: 1.1em;">
+                    ⚠️ Why is the system in Fallback Mode?
+                </h4>
+                <p style="color: #721c24; margin: 0 0 15px 0; font-size: 0.9em;">
+                    The system has detected configuration issues that prevent AI-powered analysis. 
+                    The application is using a knowledge-based fallback system to ensure continued operation.
+                </p>
+                <div style="margin-bottom: 15px;">
+                    <strong style="color: #721c24;">Configuration Issues Detected:</strong>
+                    ${issuesHtml}
+                </div>
+                <div style="background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 6px; padding: 10px; margin-top: 15px;">
+                    <div style="font-weight: 600; color: #0c5460; margin-bottom: 5px;">
+                        💡 Impact of Fallback Mode
+                    </div>
+                    <div style="font-size: 0.9em; color: #0c5460;">
+                        • <strong>Reduced Accuracy:</strong> Uses static database instead of real-time research<br>
+                        • <strong>Limited Coverage:</strong> May not have data for uncommon ingredients<br>
+                        • <strong>No Live Updates:</strong> Cannot access latest veterinary research<br>
+                        • <strong>Basic Analysis:</strong> Rule-based categorization instead of AI assessment
+                    </div>
+                </div>
+                <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 6px; padding: 10px; margin-top: 10px;">
+                    <div style="font-weight: 600; color: #155724; margin-bottom: 5px;">
+                        ✅ Fallback System Benefits
+                    </div>
+                    <div style="font-size: 0.9em; color: #155724;">
+                        • <strong>Always Available:</strong> System remains operational during configuration issues<br>
+                        • <strong>Core Safety Data:</strong> Includes essential toxic ingredients (chocolate, grapes, xylitol, etc.)<br>
+                        • <strong>Fast Response:</strong> No network delays for basic ingredient lookups<br>
+                        • <strong>Reliable Sources:</strong> Based on ASPCA and Pet Poison Helpline data
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    formatLocalTime(timestamp) {
+        if (!timestamp) return 'N/A';
+        const date = new Date(timestamp);
+        return `${date.toLocaleDateString()} ${date.toLocaleTimeString()} (Local Time)`;
+    }
+
     displayResults(data, processingTime) {
         const resultsSection = document.getElementById('resultsSection');
         const resultsGrid = document.getElementById('resultsGrid');
@@ -626,16 +784,17 @@ class AdminDashboard {
         // Show the results section
         resultsSection.style.display = 'block';
         
-        // Calculate summary statistics
+        // Calculate summary statistics (include error category)
         const totalIngredients = Object.values(data.results).reduce((sum, arr) => sum + arr.length, 0);
         const riskCounts = {
             high: data.results.high?.length || 0,
             medium: data.results.medium?.length || 0,
             low: data.results.low?.length || 0,
-            no: data.results.no?.length || 0
+            no: data.results.no?.length || 0,
+            error: data.results.error?.length || 0
         };
         
-        // Create processing summary
+        // Create processing summary (include unable to assess count when present)
         const summaryHtml = `
             <div class="processing-summary">
                 <div class="summary-stat">
@@ -654,11 +813,18 @@ class AdminDashboard {
                     <div class="value">${data.pet_type.charAt(0).toUpperCase() + data.pet_type.slice(1)}</div>
                     <div class="label">Pet Type</div>
                 </div>
+                ${riskCounts.error > 0 ? `
+                <div class="summary-stat">
+                    <div class="value">${riskCounts.error}</div>
+                    <div class="label">Unable to Assess</div>
+                </div>
+                ` : ''}
             </div>
         `;
         
-        // Create risk category cards with detailed mechanism information
+        // Create risk category cards with detailed mechanism information (include error/unable to assess)
         const riskCategories = [
+            { key: 'error', title: 'Unable to Assess', icon: '❓', description: 'Insufficient data - consult your veterinarian for professional advice' },
             { key: 'high', title: 'High Risk', icon: '🚨', description: 'Dangerous - Immediate veterinary attention required if consumed' },
             { key: 'medium', title: 'Medium Risk', icon: '⚠️', description: 'Caution required - Monitor pet closely, contact vet if symptoms appear' },
             { key: 'low', title: 'Low Risk', icon: '⚡', description: 'Minor concerns - Generally safe in small amounts' },

@@ -61,6 +61,94 @@ else:
     logger.info("⚠️ ADK configuration missing - using knowledge-based system only")
     adk_enabled = False
 
+class TokenUsageMetrics:
+    """Track token usage and cache performance metrics"""
+    
+    def __init__(self):
+        self.total_requests = 0
+        self.cache_hits = 0
+        self.cache_misses = 0
+        self.estimated_tokens_consumed = 0
+        self.estimated_tokens_saved = 0
+        self.api_calls_made = 0
+        self.api_calls_prevented = 0
+        self.lock = threading.Lock()
+        self.start_time = datetime.utcnow()
+        
+        # Token cost estimates per agent (conservative estimates)
+        self.tokens_per_research = 2500
+        self.tokens_per_risk = 1200
+        self.tokens_per_factcheck = 1000
+        self.tokens_per_full_analysis = self.tokens_per_research + self.tokens_per_risk + self.tokens_per_factcheck
+        
+        logger.info("📊 Token usage metrics initialized")
+    
+    def record_cache_hit(self):
+        """Record a cache hit (no AI processing needed)"""
+        with self.lock:
+            self.cache_hits += 1
+            self.total_requests += 1
+            self.estimated_tokens_saved += self.tokens_per_full_analysis
+            self.api_calls_prevented += 3  # Research, Risk, FactCheck agents
+    
+    def record_cache_miss(self):
+        """Record a cache miss (AI processing required)"""
+        with self.lock:
+            self.cache_misses += 1
+            self.total_requests += 1
+            self.estimated_tokens_consumed += self.tokens_per_full_analysis
+            self.api_calls_made += 3  # Research, Risk, FactCheck agents
+    
+    def record_knowledge_based(self):
+        """Record a knowledge-based lookup (no tokens used)"""
+        with self.lock:
+            self.total_requests += 1
+            # Knowledge-based doesn't consume tokens from AI
+    
+    def get_stats(self):
+        """Get comprehensive metrics statistics"""
+        with self.lock:
+            if self.total_requests == 0:
+                cache_hit_rate = 0
+            else:
+                cache_hit_rate = (self.cache_hits / self.total_requests) * 100
+            
+            # Calculate uptime
+            uptime = datetime.utcnow() - self.start_time
+            uptime_hours = uptime.total_seconds() / 3600
+            
+            # Calculate cost savings (assuming $0.002 per 1K tokens for GPT-4 class models)
+            cost_per_1k_tokens = 0.002
+            estimated_cost_consumed = (self.estimated_tokens_consumed / 1000) * cost_per_1k_tokens
+            estimated_cost_saved = (self.estimated_tokens_saved / 1000) * cost_per_1k_tokens
+            
+            return {
+                'total_requests': self.total_requests,
+                'cache_hits': self.cache_hits,
+                'cache_misses': self.cache_misses,
+                'cache_hit_rate': f"{cache_hit_rate:.1f}%",
+                'cache_hit_rate_value': round(cache_hit_rate, 1),
+                'estimated_tokens_consumed': self.estimated_tokens_consumed,
+                'estimated_tokens_saved': self.estimated_tokens_saved,
+                'total_tokens': self.estimated_tokens_consumed + self.estimated_tokens_saved,
+                'estimated_cost_consumed_usd': f"${estimated_cost_consumed:.4f}",
+                'estimated_cost_saved_usd': f"${estimated_cost_saved:.4f}",
+                'total_cost_saved_usd': f"${estimated_cost_saved:.4f}",
+                'api_calls_made': self.api_calls_made,
+                'api_calls_prevented': self.api_calls_prevented,
+                'uptime_hours': round(uptime_hours, 2),
+                'requests_per_hour': round(self.total_requests / max(uptime_hours, 0.01), 2),
+                'start_time': self.start_time.isoformat()
+            }
+    
+    def get_summary(self):
+        """Get a brief summary for logging"""
+        stats = self.get_stats()
+        return (f"Requests: {stats['total_requests']}, "
+                f"Cache Hit Rate: {stats['cache_hit_rate']}, "
+                f"Tokens Saved: {stats['estimated_tokens_saved']}, "
+                f"Cost Saved: {stats['total_cost_saved_usd']}")
+
 class DynamicCacheManager:
     """Advanced cache manager with hot-reload capabilities and runtime updates"""
     
@@ -349,6 +437,9 @@ class IngredientCache:
 dynamic_cache_manager = DynamicCacheManager()
 ingredient_cache = IngredientCache()
 
+# Initialize token usage metrics
+token_metrics = TokenUsageMetrics()
+
 class KnowledgeBasedAgent:
     """Agent that uses dynamic knowledge base for ingredient analysis"""
     
@@ -399,6 +490,124 @@ class KnowledgeBasedAgent:
 class RealFormatterAgent:
     """Agent that formats the final output"""
     
+    # Known specific source URLs for common toxic ingredients
+    SPECIFIC_SOURCE_URLS = {
+        'chocolate': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/chocolate",
+            "https://www.petpoisonhelpline.com/poison/chocolate/",
+            "https://vcahospitals.com/know-your-pet/chocolate-poisoning-in-dogs"
+        ],
+        'grapes': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/grape",
+            "https://www.petpoisonhelpline.com/poison/grape/",
+            "https://vcahospitals.com/know-your-pet/grape-and-raisin-poisoning-in-dogs"
+        ],
+        'raisins': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/grape",
+            "https://www.petpoisonhelpline.com/poison/raisin/",
+            "https://vcahospitals.com/know-your-pet/grape-and-raisin-poisoning-in-dogs"
+        ],
+        'onion': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/onion",
+            "https://www.petpoisonhelpline.com/poison/onion/",
+            "https://vcahospitals.com/know-your-pet/onion-garlic-and-chive-toxicity-in-cats"
+        ],
+        'onions': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/onion",
+            "https://www.petpoisonhelpline.com/poison/onion/",
+            "https://vcahospitals.com/know-your-pet/onion-garlic-and-chive-toxicity-in-cats"
+        ],
+        'garlic': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/garlic",
+            "https://www.petpoisonhelpline.com/poison/garlic/",
+            "https://vcahospitals.com/know-your-pet/onion-garlic-and-chive-toxicity-in-cats"
+        ],
+        'xylitol': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/xylitol",
+            "https://www.petpoisonhelpline.com/poison/xylitol/",
+            "https://vcahospitals.com/know-your-pet/xylitol-toxicity-in-dogs"
+        ],
+        'avocado': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/avocado",
+            "https://www.petpoisonhelpline.com/poison/avocado/",
+            "https://vcahospitals.com/know-your-pet/avocado-toxicity-in-dogs-and-cats"
+        ],
+        'macadamia': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/macadamia-nut",
+            "https://www.petpoisonhelpline.com/poison/macadamia-nut/",
+            "https://vcahospitals.com/know-your-pet/macadamia-nut-toxicosis-in-dogs"
+        ],
+        'macadamia nuts': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/macadamia-nut",
+            "https://www.petpoisonhelpline.com/poison/macadamia-nut/",
+            "https://vcahospitals.com/know-your-pet/macadamia-nut-toxicosis-in-dogs"
+        ],
+        'caffeine': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/caffeine",
+            "https://www.petpoisonhelpline.com/poison/caffeine/",
+            "https://vcahospitals.com/know-your-pet/caffeine-toxicity-in-pets"
+        ],
+        'alcohol': [
+            "https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/ethanol",
+            "https://www.petpoisonhelpline.com/poison/alcohol/",
+            "https://vcahospitals.com/know-your-pet/alcohol-toxicity-in-dogs-and-cats"
+        ],
+        'chicken': [
+            "https://www.aspca.org/pet-care/animal-poison-control/people-foods-avoid-feeding-your-pets",
+            "https://vcahospitals.com/know-your-pet/nutritional-guidelines-for-dogs",
+            "https://www.petmd.com/dog/nutrition/can-dogs-eat-chicken"
+        ],
+        'rice': [
+            "https://www.aspca.org/pet-care/animal-poison-control/people-foods-avoid-feeding-your-pets",
+            "https://vcahospitals.com/know-your-pet/nutritional-guidelines-for-dogs",
+            "https://www.petmd.com/dog/nutrition/can-dogs-eat-rice"
+        ],
+        'carrots': [
+            "https://www.aspca.org/pet-care/animal-poison-control/people-foods-avoid-feeding-your-pets",
+            "https://vcahospitals.com/know-your-pet/nutritional-guidelines-for-dogs",
+            "https://www.petmd.com/dog/nutrition/can-dogs-eat-carrots"
+        ],
+        'sweet potato': [
+            "https://www.aspca.org/pet-care/animal-poison-control/people-foods-avoid-feeding-your-pets",
+            "https://vcahospitals.com/know-your-pet/nutritional-guidelines-for-dogs",
+            "https://www.petmd.com/dog/nutrition/can-dogs-eat-sweet-potatoes"
+        ],
+        'pumpkin': [
+            "https://www.aspca.org/pet-care/animal-poison-control/people-foods-avoid-feeding-your-pets",
+            "https://vcahospitals.com/know-your-pet/nutritional-guidelines-for-dogs",
+            "https://www.petmd.com/dog/nutrition/can-dogs-eat-pumpkin"
+        ]
+    }
+    
+    def _get_specific_sources_for_ingredient(self, ingredient, pet_type):
+        """Get specific source URLs for an ingredient, or fallback appropriately"""
+        ingredient_lower = ingredient.lower().strip()
+        
+        # Check for exact match in our specific URLs database
+        if ingredient_lower in self.SPECIFIC_SOURCE_URLS:
+            return self.SPECIFIC_SOURCE_URLS[ingredient_lower]
+        
+        # Check if ingredient is in the database but not in specific URLs
+        # In this case, be honest that we don't have specific source URLs
+        ingredient_info = dynamic_cache_manager.get_ingredient_info(ingredient)
+        if ingredient_info:
+            # Ingredient is in our database, but we don't have specific URLs
+            # Use emergency contacts instead of fake search links
+            return [
+                "No specific source URLs available for this ingredient in our database",
+                "For professional guidance: ASPCA Animal Poison Control (888) 426-4435",
+                "For professional guidance: Pet Poison Helpline (855) 764-7661",
+                "Consult your veterinarian for ingredient-specific information"
+            ]
+        
+        # Completely unknown ingredient - provide emergency contacts
+        return [
+            f"No verified sources found for '{ingredient}' safety in {pet_type}s",
+            "ASPCA Animal Poison Control: (888) 426-4435",
+            "Pet Poison Helpline: (855) 764-7661",
+            "Consult your veterinarian immediately for professional assessment"
+        ]
+    
     def format_from_analysis(self, analysis_result):
         """Format analysis results for display"""
         ingredient = analysis_result['ingredient']
@@ -418,7 +627,7 @@ class RealFormatterAgent:
                 'name': ingredient,
                 'risk_level': 'error',
                 'justification': f"{error_message}. {reason} {recommendation_text}",
-                'sources': recommendations,  # Use recommendations as sources
+                'sources': recommendations,  # Use recommendations as sources (array format)
                 'cached': False,
                 'ai_powered': False,
                 'knowledge_based': False,
@@ -459,18 +668,14 @@ class RealFormatterAgent:
         
         justification = ' '.join(justification_parts)
         
-        # Generate sources
-        sources = [
-            "ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control",
-            "Pet Poison Helpline: https://www.petpoisonhelpline.com",
-            "VCA Animal Hospitals: https://vcahospitals.com"
-        ]
+        # Get specific source URLs for this ingredient (not search URLs)
+        sources = self._get_specific_sources_for_ingredient(ingredient, pet_type)
         
         return {
             'name': ingredient,
             'risk_level': severity,
             'justification': justification,
-            'sources': ' | '.join(sources),
+            'sources': sources,  # Direct URLs to specific pages or honest fallback
             'cached': False,
             'ai_powered': False,
             'knowledge_based': True
@@ -498,11 +703,14 @@ class RealMultiAgentSystem:
                 cached_result = ingredient_cache.get(ingredient, pet_type)
                 if cached_result:
                     # Use cached result
+                    token_metrics.record_cache_hit()
                     cached_result['cached'] = True
                     results[cached_result['risk_level']].append(cached_result)
+                    logger.info(f"📋 Cache hit for {ingredient} - tokens saved: {token_metrics.tokens_per_full_analysis}")
                     continue
                 
                 # Not in cache - process through knowledge base
+                token_metrics.record_knowledge_based()
                 logger.info(f"🧠 Knowledge Agent: Analyzing {ingredient} for {pet_type}")
                 analysis_result = self.knowledge_agent.analyze_ingredient(ingredient, pet_type)
                 
@@ -709,16 +917,11 @@ class RealFactCheckerAgent:
         """Fallback fact checking using shared ingredient database (ingredient_database.json)."""
         ingredient = research_data['ingredient'].lower()
 
-        def generate_source_urls(ingredient_name, pet_type):
-            """Generate query-specific source URLs for user research."""
-            sources = []
-            aspca_query = f"{ingredient_name} {pet_type} toxic poisonous"
-            sources.append(f"ASPCA Search: https://www.aspca.org/search?query={aspca_query.replace(' ', '+')}")
-            pph_query = f"{ingredient_name} {pet_type}"
-            sources.append(f"Pet Poison Helpline: https://www.petpoisonhelpline.com/search/?q={pph_query.replace(' ', '+')}")
-            vca_query = f"{ingredient_name} toxic {pet_type}"
-            sources.append(f"VCA Hospitals: https://vcahospitals.com/search?q={vca_query.replace(' ', '+')}")
-            return sources
+        def get_specific_sources(ingredient_name, pet_type):
+            """Get specific source URLs or honest fallback."""
+            # Use the formatter's source mapping
+            formatter = RealFormatterAgent()
+            return formatter._get_specific_sources_for_ingredient(ingredient_name, pet_type)
 
         # Use shared ingredient database (single source of truth)
         ingredient_info = dynamic_cache_manager.get_ingredient_info(research_data['ingredient'])
@@ -753,14 +956,14 @@ class RealFactCheckerAgent:
                 symptoms = "No significant adverse effects expected. Monitor as with any new food item."
                 validated_risk = 'no'
         
-        # Generate multiple query-specific sources
-        query_specific_sources = generate_source_urls(research_data['ingredient'], pet_type)
+        # Get specific sources or honest fallback
+        specific_sources = get_specific_sources(research_data['ingredient'], pet_type)
         
         research_data['fact_check'] = {
             'validated_risk': validated_risk,
             'mechanism': mechanism,
             'symptoms': symptoms,
-            'authoritative_sources': query_specific_sources,
+            'authoritative_sources': specific_sources,
             'emergency_contacts': 'ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661'
         }
         research_data['validated_risk'] = validated_risk
@@ -792,12 +995,15 @@ class AIMultiAgentSystem:
             # Check cache first
             cached_result = ingredient_cache.get(ingredient, pet_type)
             if cached_result:
+                token_metrics.record_cache_hit()
                 cached_result['cached'] = True
                 results[cached_result['risk_level']].append(cached_result)
+                logger.info(f"📋 Cache hit for {ingredient} - tokens saved: {token_metrics.tokens_per_full_analysis}")
                 continue
             
             # Try AI agents first, but immediately fall back to knowledge base on any error
             try:
+                token_metrics.record_cache_miss()
                 logger.info(f"🔬 Research Agent: Researching {ingredient} for {pet_type}")
                 research_data = await self.research_agent.research(ingredient, pet_type)
                 
@@ -814,15 +1020,16 @@ class AIMultiAgentSystem:
                 
                 if validation_failed or final_risk == 'error':
                     # Handle validation failure - return error result
+                    emergency_sources = [
+                        "ASPCA Animal Poison Control: (888) 426-4435",
+                        "Pet Poison Helpline: (855) 764-7661",
+                        "Consult your veterinarian immediately"
+                    ]
                     formatted_result = {
                         'name': ingredient,
                         'risk_level': 'error',
                         'justification': f"Unable to provide reliable safety information for '{ingredient}'. {fact_check_data.get('failure_reason', 'Insufficient specific sources found.')} {fact_check_data.get('recommendation', 'Consult your veterinarian immediately for professional advice.')}",
-                        'sources': [
-                            "ASPCA Animal Poison Control: (888) 426-4435",
-                            "Pet Poison Helpline: (855) 764-7661",
-                            "Consult your veterinarian immediately"
-                        ],
+                        'sources': emergency_sources,  # Array format
                         'cached': False,
                         'ai_powered': True,
                         'knowledge_based': False,
@@ -831,11 +1038,16 @@ class AIMultiAgentSystem:
                     }
                 else:
                     # Format successful result
+                    # Ensure sources are in array format
+                    sources = fact_check_data.get('specific_sources', fact_check_data.get('authoritative_sources', []))
+                    if not isinstance(sources, list):
+                        sources = [sources] if sources else ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control']
+                    
                     formatted_result = {
                         'name': ingredient,
                         'risk_level': final_risk,
                         'justification': f"{ingredient.capitalize()} {self._get_risk_description(final_risk)} for {pet_type}s. {fact_check_data.get('mechanism', '')} {fact_check_data.get('symptoms', '')}",
-                        'sources': fact_check_data.get('specific_sources', fact_check_data.get('authoritative_sources', ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'])),
+                        'sources': sources,  # Always array format
                         'cached': False,
                         'ai_powered': True,
                         'knowledge_based': False
@@ -1149,6 +1361,9 @@ def health_check():
     if agent_status['fact_checker_agent'] in ['offline', 'timeout', 'error']:
         fallback_reasons.append('factcheck_agent_unreachable')
     
+    # Get token metrics
+    token_stats = token_metrics.get_stats()
+    
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
@@ -1162,6 +1377,12 @@ def health_check():
         'fallback_mode': not actual_ai_enabled,
         'fallback_reasons': fallback_reasons,
         'cache_stats': cache_stats,
+        'token_metrics': {
+            'cache_hit_rate': token_stats['cache_hit_rate'],
+            'tokens_saved': token_stats['estimated_tokens_saved'],
+            'cost_saved': token_stats['total_cost_saved_usd'],
+            'api_calls_prevented': token_stats['api_calls_prevented']
+        },
         'system_diagnostics': system_diagnostics,  # Add detailed system diagnostics
         'genai_config': {
             'access_token_configured': bool(adk_config['access_token']),
@@ -1181,7 +1402,8 @@ def health_check():
 def get_agent_metrics():
     """Get real-time agent performance metrics"""
     try:
-        # Get cache statistics for performance metrics
+        # Get real token and cache statistics
+        token_stats = token_metrics.get_stats()
         cache_stats = ingredient_cache.get_cache_stats()
         
         # Calculate real metrics from cache data
@@ -1202,19 +1424,25 @@ def get_agent_metrics():
         return jsonify({
             'performance_metrics': {
                 'total_ingredients_processed': total_processed,
-                'cache_hit_rate': f"{(cache_stats['active_entries'] / max(1, total_processed)) * 100:.1f}%",
+                'total_requests': token_stats['total_requests'],
+                'cache_hit_rate': token_stats['cache_hit_rate'],
                 'success_rate': f"{success_rate:.1f}%",
                 'average_response_time': '2.5s',
                 'agent_response_times': estimated_times,
                 'memory_usage': f"{cache_stats['total_cached_ingredients'] * 0.025:.1f}MB active",
-                'cached_research_data': f"{cache_stats['active_entries']} entries"
+                'cached_research_data': f"{cache_stats['active_entries']} entries",
+                'tokens_saved': token_stats['estimated_tokens_saved'],
+                'cost_saved': token_stats['total_cost_saved_usd']
             },
             'agent_coordination': {
                 'communication_failures': 0,
                 'coordination_status': 'optimal',
-                'pipeline_efficiency': '98.5%'
+                'pipeline_efficiency': '98.5%',
+                'api_calls_made': token_stats['api_calls_made'],
+                'api_calls_prevented': token_stats['api_calls_prevented']
             },
             'cache_performance': cache_stats,
+            'token_metrics': token_stats,
             'timestamp': datetime.utcnow().isoformat()
         })
         
@@ -1265,6 +1493,21 @@ def get_real_agent_status():
     """Get real-time status from deployed agents"""
     try:
         agent_statuses = {}
+        
+        # Skip agent requests when token not configured (avoid invalid 401s)
+        if not adk_config['access_token']:
+            url_keys = {'research_agent': 'research_agent_url', 'risk_analysis_agent': 'risk_agent_url', 'fact_checker_agent': 'factcheck_agent_url'}
+            for agent_name in ['research_agent', 'risk_analysis_agent', 'fact_checker_agent']:
+                agent_statuses[agent_name] = {
+                    'status': 'not_configured',
+                    'error': 'Missing DIGITALOCEAN_TOKEN',
+                    'endpoint': adk_config.get(url_keys[agent_name], '')
+                }
+            return jsonify({
+                'agent_statuses': agent_statuses,
+                'timestamp': datetime.utcnow().isoformat(),
+                'adk_enabled': adk_enabled
+            })
         
         # Test each agent (URLs from config)
         agents_to_test = [
@@ -1504,6 +1747,89 @@ def get_cache_stats():
         logger.error(f"Error getting cache stats: {e}")
         return jsonify({'error': 'Failed to retrieve cache statistics'}), 500
 
+@app.route('/api/token-metrics', methods=['GET'])
+def get_token_metrics():
+    """API endpoint to get comprehensive token usage and cache performance metrics"""
+    try:
+        metrics = token_metrics.get_stats()
+        cache_stats = ingredient_cache.get_cache_stats()
+        
+        return jsonify({
+            'success': True,
+            'token_metrics': metrics,
+            'cache_performance': {
+                'total_cached_items': cache_stats['total_cached_ingredients'],
+                'active_cache_entries': cache_stats['active_entries'],
+                'expired_entries': cache_stats['expired_entries'],
+                'cache_directory': cache_stats['cache_directory']
+            },
+            'performance_summary': {
+                'cache_effectiveness': metrics['cache_hit_rate'],
+                'total_token_savings': metrics['estimated_tokens_saved'],
+                'cost_savings': metrics['total_cost_saved_usd'],
+                'api_calls_prevented': metrics['api_calls_prevented']
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting token metrics: {e}")
+        return jsonify({'error': 'Failed to retrieve token metrics'}), 500
+
+@app.route('/api/cache/performance', methods=['GET'])
+def get_cache_performance():
+    """API endpoint for detailed cache performance analysis"""
+    try:
+        token_stats = token_metrics.get_stats()
+        cache_stats = ingredient_cache.get_cache_stats()
+        
+        # Calculate detailed performance metrics
+        performance_data = {
+            'cache_metrics': {
+                'hit_rate_percentage': token_stats['cache_hit_rate_value'],
+                'total_hits': token_stats['cache_hits'],
+                'total_misses': token_stats['cache_misses'],
+                'total_requests': token_stats['total_requests']
+            },
+            'token_usage': {
+                'tokens_consumed': token_stats['estimated_tokens_consumed'],
+                'tokens_saved': token_stats['estimated_tokens_saved'],
+                'total_tokens_processed': token_stats['total_tokens'],
+                'average_tokens_per_request': round(token_stats['total_tokens'] / max(token_stats['total_requests'], 1), 0)
+            },
+            'cost_analysis': {
+                'cost_consumed': token_stats['estimated_cost_consumed_usd'],
+                'cost_saved': token_stats['estimated_cost_saved_usd'],
+                'total_savings': token_stats['total_cost_saved_usd']
+            },
+            'api_efficiency': {
+                'api_calls_made': token_stats['api_calls_made'],
+                'api_calls_prevented': token_stats['api_calls_prevented'],
+                'total_api_calls_avoided': token_stats['api_calls_prevented']
+            },
+            'cache_storage': {
+                'total_items': cache_stats['total_cached_ingredients'],
+                'active_items': cache_stats['active_entries'],
+                'expired_items': cache_stats['expired_entries']
+            },
+            'uptime_metrics': {
+                'uptime_hours': token_stats['uptime_hours'],
+                'requests_per_hour': token_stats['requests_per_hour'],
+                'started_at': token_stats['start_time']
+            }
+        }
+        
+        return jsonify({
+            'success': True,
+            'performance': performance_data,
+            'summary': token_metrics.get_summary(),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting cache performance: {e}")
+        return jsonify({'error': 'Failed to retrieve cache performance'}), 500
+
 @app.route('/api/database/reload', methods=['POST'])
 def reload_database():
     """API endpoint to manually reload the ingredient database"""
@@ -1620,6 +1946,15 @@ def list_ingredients():
         logger.error(f"Error listing ingredients: {e}")
         return jsonify({'error': 'Failed to list ingredients'}), 500
 
+def log_metrics_periodically():
+    """Background thread to log metrics periodically"""
+    while True:
+        try:
+            time.sleep(300)  # Log every 5 minutes
+            logger.info(f"📊 Metrics Summary: {token_metrics.get_summary()}")
+        except Exception as e:
+            logger.error(f"Error logging metrics: {e}")
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5001))
     debug = os.getenv('FLASK_ENV') == 'development'
@@ -1628,5 +1963,12 @@ if __name__ == '__main__':
     logger.info("🤖 AI-Powered Multi-Agent System using DigitalOcean GenAI agents")
     logger.info("✅ Application configured to use agents directly for ingredient research")
     logger.info("📋 Cache system enabled for performance optimization")
+    logger.info("📊 Token usage tracking enabled - monitor at /api/token-metrics")
+    logger.info("💾 Cache performance tracking enabled - monitor at /api/cache/performance")
+    
+    # Start background metrics logging thread
+    metrics_thread = threading.Thread(target=log_metrics_periodically, daemon=True)
+    metrics_thread.start()
+    logger.info("📈 Periodic metrics logging started (every 5 minutes)")
     
     app.run(host='0.0.0.0', port=port, debug=debug)

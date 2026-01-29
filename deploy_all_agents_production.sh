@@ -4,8 +4,14 @@ echo "🚀 Deploying All ADK Agents to DigitalOcean Production"
 echo "=================================================="
 echo ""
 
-# Check if token is set
-if [ -z "$DIGITALOCEAN_API_TOKEN" ]; then
+# Load environment variables from .env file
+if [ -f ".env" ]; then
+    echo "📋 Loading environment variables from .env file..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# Check if token is set (check both common environment variable names)
+if [ -z "$DIGITALOCEAN_API_TOKEN" ] && [ -z "$DIGITALOCEAN_TOKEN" ]; then
     echo "⚠️  API Token Required"
     echo ""
     echo "Your API token must have the following scopes:"
@@ -17,6 +23,11 @@ if [ -z "$DIGITALOCEAN_API_TOKEN" ]; then
     echo ""
     read -p "Enter your DigitalOcean API Token: " token
     export DIGITALOCEAN_API_TOKEN=$token
+elif [ -n "$DIGITALOCEAN_TOKEN" ] && [ -z "$DIGITALOCEAN_API_TOKEN" ]; then
+    echo "✅ Using DIGITALOCEAN_TOKEN from environment"
+    export DIGITALOCEAN_API_TOKEN=$DIGITALOCEAN_TOKEN
+else
+    echo "✅ Using DIGITALOCEAN_API_TOKEN from environment"
 fi
 
 echo "🔬 Deploying Research Agent..."
