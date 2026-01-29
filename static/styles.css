@@ -247,6 +247,10 @@ header p {
     background: var(--accent-green);
 }
 
+.risk-header.error-risk {
+    background: #6c757d;
+}
+
 .ingredient-item {
     padding: 20px;
     border-bottom: 1px solid #eee;

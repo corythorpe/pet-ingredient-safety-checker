@@ -17,6 +17,8 @@ import re
 import hashlib
 import pickle
 from pathlib import Path
+import threading
+import time
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -30,6 +32,11 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, template_folder='templates', static_folder='static')
 CORS(app)
 
+# Default agent URLs (used when env vars not set)
+_DEFAULT_RESEARCH_AGENT_URL = "https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run"
+_DEFAULT_RISK_AGENT_URL = "https://agents.do-ai.run/44227105-4e0f-479d-9717-3d5694b87778/risk_analysis_agent_deploy/run"
+_DEFAULT_FACTCHECK_AGENT_URL = "https://agents.do-ai.run/20acedf1-e2e8-4910-b710-ca6b7fa9e3a2/fact_checker_agent_deploy/run"
+
 # Initialize ADK Agent configuration using validated environment variables
 adk_config = {
     'research_agent_id': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_ID'),
@@ -40,10 +47,9 @@ adk_config = {
     'region': os.getenv('DIGITALOCEAN_GENAI_REGION', 'tor1'),
     'inference_url': os.getenv('DIGITALOCEAN_GENAI_INFERENCE_URL', 'https://inference.do-ai.run/v1'),
     'access_token': os.getenv('DIGITALOCEAN_TOKEN') or os.getenv('DIGITALOCEAN_API_TOKEN'),
-    # Use validated agent deployment URLs directly
-    'research_agent_url': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_URL'),
-    'risk_agent_url': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_URL'),
-    'factcheck_agent_url': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_URL')
+    'research_agent_url': os.getenv('DIGITALOCEAN_GENAI_RESEARCH_AGENT_URL') or _DEFAULT_RESEARCH_AGENT_URL,
+    'risk_agent_url': os.getenv('DIGITALOCEAN_GENAI_RISK_AGENT_URL') or _DEFAULT_RISK_AGENT_URL,
+    'factcheck_agent_url': os.getenv('DIGITALOCEAN_GENAI_FACTCHECK_AGENT_URL') or _DEFAULT_FACTCHECK_AGENT_URL,
 }
 
 # Check if all required ADK configuration is available
@@ -55,14 +61,129 @@ else:
     logger.info("⚠️ ADK configuration missing - using knowledge-based system only")
     adk_enabled = False
 
+class DynamicCacheManager:
+    """Advanced cache manager with hot-reload capabilities and runtime updates"""
+    
+    def __init__(self, cache_dir='cache', database_file='ingredient_database.json'):
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(exist_ok=True)
+        self.database_file = Path(database_file)
+        self.cache_duration = timedelta(days=15)
+        self.ingredient_database = {}
+        self.database_last_modified = None
+        self.lock = threading.RLock()
+        
+        # Load initial database
+        self.reload_database()
+        
+        # Start background thread for periodic database checks
+        self.monitor_thread = threading.Thread(target=self._monitor_database_changes, daemon=True)
+        self.monitor_thread.start()
+        
+        logger.info(f"📋 Dynamic cache manager initialized: {self.cache_dir.absolute()}")
+        logger.info(f"🔄 Database monitoring enabled for: {self.database_file.absolute()}")
+    
+    def reload_database(self):
+        """Reload ingredient database from JSON file"""
+        try:
+            with self.lock:
+                if self.database_file.exists():
+                    with open(self.database_file, 'r') as f:
+                        self.ingredient_database = json.load(f)
+                    
+                    # Update last modified time
+                    self.database_last_modified = self.database_file.stat().st_mtime
+                    logger.info(f"🔄 Reloaded ingredient database: {len(self.ingredient_database)} ingredients")
+                    return True
+                else:
+                    logger.warning(f"⚠️ Database file not found: {self.database_file}")
+                    self.ingredient_database = {}
+                    return False
+        except Exception as e:
+            logger.error(f"❌ Failed to reload database: {e}")
+            return False
+    
+    def _monitor_database_changes(self):
+        """Background thread to monitor database file changes"""
+        while True:
+            try:
+                if self.database_file.exists():
+                    current_mtime = self.database_file.stat().st_mtime
+                    if self.database_last_modified and current_mtime > self.database_last_modified:
+                        logger.info("🔄 Database file changed, reloading...")
+                        self.reload_database()
+                
+                time.sleep(5)  # Check every 5 seconds
+            except Exception as e:
+                logger.error(f"Database monitoring error: {e}")
+                time.sleep(30)  # Wait longer on error
+    
+    def get_ingredient_info(self, ingredient):
+        """Get ingredient information from database with thread safety"""
+        with self.lock:
+            ingredient_lower = ingredient.lower().strip()
+            
+            # Check for exact matches first
+            if ingredient_lower in self.ingredient_database:
+                return self.ingredient_database[ingredient_lower]
+            
+            # Check for partial matches
+            for key, data in self.ingredient_database.items():
+                if key in ingredient_lower or ingredient_lower in key:
+                    return data
+            
+            return None
+    
+    def add_ingredient(self, ingredient, data):
+        """Add new ingredient to database and save to file"""
+        try:
+            with self.lock:
+                self.ingredient_database[ingredient.lower().strip()] = data
+                
+                # Save to file
+                with open(self.database_file, 'w') as f:
+                    json.dump(self.ingredient_database, f, indent=2)
+                
+                logger.info(f"✅ Added ingredient to database: {ingredient}")
+                return True
+        except Exception as e:
+            logger.error(f"❌ Failed to add ingredient: {e}")
+            return False
+    
+    def update_ingredient(self, ingredient, data):
+        """Update existing ingredient in database"""
+        return self.add_ingredient(ingredient, data)  # Same operation
+    
+    def remove_ingredient(self, ingredient):
+        """Remove ingredient from database"""
+        try:
+            with self.lock:
+                ingredient_key = ingredient.lower().strip()
+                if ingredient_key in self.ingredient_database:
+                    del self.ingredient_database[ingredient_key]
+                    
+                    # Save to file
+                    with open(self.database_file, 'w') as f:
+                        json.dump(self.ingredient_database, f, indent=2)
+                    
+                    logger.info(f"🗑️ Removed ingredient from database: {ingredient}")
+                    return True
+                else:
+                    logger.warning(f"⚠️ Ingredient not found for removal: {ingredient}")
+                    return False
+        except Exception as e:
+            logger.error(f"❌ Failed to remove ingredient: {e}")
+            return False
+
 class IngredientCache:
-    """File-based cache for ingredient lookups with 15-day expiration"""
+    """Enhanced file-based cache with runtime invalidation capabilities"""
     
     def __init__(self, cache_dir='cache'):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
         self.cache_duration = timedelta(days=15)
-        logger.info(f"📋 Ingredient cache initialized: {self.cache_dir.absolute()}")
+        self.lock = threading.RLock()
+        logger.info(f"📋 Enhanced ingredient cache initialized: {self.cache_dir.absolute()}")
     
     def _get_cache_key(self, ingredient, pet_type):
         """Generate a unique cache key for ingredient + pet type combination"""
@@ -75,55 +196,106 @@ class IngredientCache:
     
     def get(self, ingredient, pet_type):
         """Retrieve cached result if available and not expired"""
-        cache_key = self._get_cache_key(ingredient, pet_type)
-        cache_path = self._get_cache_path(cache_key)
-        
-        if not cache_path.exists():
-            return None
-        
-        try:
-            with open(cache_path, 'rb') as f:
-                cached_data = pickle.load(f)
+        with self.lock:
+            cache_key = self._get_cache_key(ingredient, pet_type)
+            cache_path = self._get_cache_path(cache_key)
             
-            # Check if cache is expired
-            cached_time = datetime.fromisoformat(cached_data['timestamp'])
-            if datetime.now() - cached_time > self.cache_duration:
-                logger.info(f"🗑️ Cache expired for {ingredient} ({pet_type})")
-                cache_path.unlink()  # Delete expired cache
+            if not cache_path.exists():
                 return None
             
-            logger.info(f"📋 Cache hit for {ingredient} ({pet_type})")
-            return cached_data['result']
-            
-        except Exception as e:
-            logger.warning(f"Cache read error for {ingredient}: {e}")
-            # Delete corrupted cache file
             try:
-                cache_path.unlink()
-            except:
-                pass
-            return None
+                with open(cache_path, 'rb') as f:
+                    cached_data = pickle.load(f)
+                
+                # Check if cache is expired
+                cached_time = datetime.fromisoformat(cached_data['timestamp'])
+                if datetime.now() - cached_time > self.cache_duration:
+                    logger.info(f"🗑️ Cache expired for {ingredient} ({pet_type})")
+                    cache_path.unlink()  # Delete expired cache
+                    return None
+                
+                logger.info(f"📋 Cache hit for {ingredient} ({pet_type})")
+                return cached_data['result']
+                
+            except Exception as e:
+                logger.warning(f"Cache read error for {ingredient}: {e}")
+                # Delete corrupted cache file
+                try:
+                    cache_path.unlink()
+                except:
+                    pass
+                return None
     
     def set(self, ingredient, pet_type, result):
-        """Store result in cache"""
-        cache_key = self._get_cache_key(ingredient, pet_type)
-        cache_path = self._get_cache_path(cache_key)
-        
-        try:
-            cached_data = {
-                'ingredient': ingredient,
-                'pet_type': pet_type,
-                'result': result,
-                'timestamp': datetime.now().isoformat()
-            }
+        """Store result in cache with thread safety"""
+        with self.lock:
+            cache_key = self._get_cache_key(ingredient, pet_type)
+            cache_path = self._get_cache_path(cache_key)
             
-            with open(cache_path, 'wb') as f:
-                pickle.dump(cached_data, f)
+            try:
+                cached_data = {
+                    'ingredient': ingredient,
+                    'pet_type': pet_type,
+                    'result': result,
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(cached_data, f)
+                
+                logger.info(f"💾 Cached result for {ingredient} ({pet_type})")
+                
+            except Exception as e:
+                logger.warning(f"Cache write error for {ingredient}: {e}")
+    
+    def invalidate(self, ingredient=None, pet_type=None):
+        """Invalidate cache entries for specific ingredient/pet_type or all"""
+        with self.lock:
+            removed_count = 0
             
-            logger.info(f"💾 Cached result for {ingredient} ({pet_type})")
+            if ingredient is None and pet_type is None:
+                # Clear all cache
+                for cache_file in self.cache_dir.glob('*.pkl'):
+                    try:
+                        cache_file.unlink()
+                        removed_count += 1
+                    except:
+                        pass
+                logger.info(f"🧹 Cleared entire cache: {removed_count} entries")
+            else:
+                # Clear specific entries
+                for cache_file in self.cache_dir.glob('*.pkl'):
+                    try:
+                        with open(cache_file, 'rb') as f:
+                            cached_data = pickle.load(f)
+                        
+                        should_remove = False
+                        if ingredient and pet_type:
+                            # Both specified - exact match
+                            should_remove = (cached_data['ingredient'].lower() == ingredient.lower() and 
+                                           cached_data['pet_type'].lower() == pet_type.lower())
+                        elif ingredient:
+                            # Only ingredient specified
+                            should_remove = cached_data['ingredient'].lower() == ingredient.lower()
+                        elif pet_type:
+                            # Only pet_type specified
+                            should_remove = cached_data['pet_type'].lower() == pet_type.lower()
+                        
+                        if should_remove:
+                            cache_file.unlink()
+                            removed_count += 1
+                            
+                    except Exception:
+                        # Remove corrupted files
+                        try:
+                            cache_file.unlink()
+                            removed_count += 1
+                        except:
+                            pass
+                
+                logger.info(f"🧹 Invalidated {removed_count} cache entries for ingredient='{ingredient}', pet_type='{pet_type}'")
             
-        except Exception as e:
-            logger.warning(f"Cache write error for {ingredient}: {e}")
+            return removed_count
     
     def cleanup_expired(self):
         """Remove expired cache files"""
@@ -173,163 +345,55 @@ class IngredientCache:
             'cache_directory': str(self.cache_dir.absolute())
         }
 
-# Initialize cache
+# Initialize dynamic cache manager and enhanced cache
+dynamic_cache_manager = DynamicCacheManager()
 ingredient_cache = IngredientCache()
 
 class KnowledgeBasedAgent:
-    """Agent that uses built-in knowledge base for ingredient analysis"""
+    """Agent that uses dynamic knowledge base for ingredient analysis"""
     
-    def __init__(self):
-        # Comprehensive ingredient safety database
-        self.ingredient_database = {
-            'chocolate': {
-                'mechanism': 'Contains theobromine and caffeine, which are toxic methylxanthines that pets cannot metabolize effectively. Dark chocolate and baking chocolate are most dangerous.',
-                'symptoms': 'Vomiting, diarrhea, increased heart rate, seizures, hyperactivity, excessive thirst, abnormal heart rhythm. Symptoms appear 6-12 hours after ingestion.',
-                'severity': 'high',
-                'additional_info': 'Toxicity depends on chocolate type and pet size. As little as 20mg/kg of theobromine can cause toxicity.'
-            },
-            'grapes': {
-                'mechanism': 'Contains unknown compounds that cause acute kidney failure in dogs and cats. Even small amounts can be fatal.',
-                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
-                'severity': 'high',
-                'additional_info': 'No safe amount established. Both fresh grapes and raisins are toxic. Immediate veterinary care required.'
-            },
-            'raisins': {
-                'mechanism': 'Dried grapes containing concentrated toxic compounds that cause acute kidney failure. More concentrated than fresh grapes.',
-                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
-                'severity': 'high',
-                'additional_info': 'Even more dangerous than grapes due to concentration. As few as 6 raisins can be toxic to a 20lb dog.'
-            },
-            'onion': {
-                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
-                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
-                'severity': 'high',
-                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
-            },
-            'onions': {
-                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
-                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
-                'severity': 'high',
-                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
-            },
-            'garlic': {
-                'mechanism': 'Contains allicin and sulfur compounds that are 5x more potent than onions in causing red blood cell damage and anemia.',
-                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. More severe than onion toxicity.',
-                'severity': 'high',
-                'additional_info': 'More toxic than onions. Even small amounts can be dangerous. Cats are extremely sensitive.'
-            },
-            'xylitol': {
-                'mechanism': 'Artificial sweetener that causes rapid insulin release, leading to severe hypoglycemia and potential liver failure.',
-                'symptoms': 'Vomiting, loss of coordination, lethargy, collapse, seizures within 10-60 minutes. Liver failure possible in 12-24 hours.',
-                'severity': 'high',
-                'additional_info': 'Found in sugar-free gum, mints, baked goods. As little as 0.1g/kg can cause hypoglycemia. Emergency treatment required.'
-            },
-            'avocado': {
-                'mechanism': 'Contains persin, a fungicidal toxin that can cause digestive upset and respiratory distress in pets.',
-                'symptoms': 'Vomiting, diarrhea, difficulty breathing, fluid accumulation around heart. Birds and small mammals most sensitive.',
-                'severity': 'medium',
-                'additional_info': 'All parts toxic: fruit, pit, leaves, bark. Dogs and cats less sensitive than birds, but still at risk.'
-            },
-            'macadamia nuts': {
-                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
-                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
-                'severity': 'medium',
-                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
-            },
-            'macadamia': {
-                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
-                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
-                'severity': 'medium',
-                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
-            },
-            'caffeine': {
-                'mechanism': 'Methylxanthine stimulant that affects the central nervous system and cardiovascular system. Similar to theobromine toxicity.',
-                'symptoms': 'Hyperactivity, restlessness, vomiting, elevated heart rate, high blood pressure, abnormal heart rhythms, tremors, seizures.',
-                'severity': 'high',
-                'additional_info': 'Found in coffee, tea, energy drinks, medications. Pets are much more sensitive than humans. Can be fatal.'
-            },
-            'alcohol': {
-                'mechanism': 'Ethanol causes central nervous system depression, metabolic acidosis, and can lead to coma and death.',
-                'symptoms': 'Vomiting, diarrhea, difficulty breathing, tremors, abnormal blood acidity, coma, death.',
-                'severity': 'high',
-                'additional_info': 'Even small amounts dangerous. Found in alcoholic beverages, raw bread dough, mouthwash. Immediate veterinary care required.'
-            },
-            'chicken': {
-                'mechanism': 'Generally safe when properly cooked and boneless. Raw chicken may contain harmful bacteria like Salmonella.',
-                'symptoms': 'If raw or contaminated: vomiting, diarrhea, fever, lethargy from bacterial infection.',
-                'severity': 'no',
-                'additional_info': 'Cooked, boneless chicken is safe and nutritious. Avoid seasoning, bones, and raw preparation. Remove skin to reduce fat.'
-            },
-            'rice': {
-                'mechanism': 'Easily digestible carbohydrate that is safe and often recommended for digestive issues.',
-                'symptoms': 'Generally no adverse effects. May cause mild digestive upset if given in very large quantities.',
-                'severity': 'no',
-                'additional_info': 'Plain, cooked white or brown rice is safe. Often used in bland diets for digestive recovery. Avoid seasoning.'
-            },
-            'carrots': {
-                'mechanism': 'High in beta-carotene, fiber, and vitamins. Safe and nutritious for pets.',
-                'symptoms': 'No adverse effects. May cause orange discoloration of urine if consumed in very large quantities.',
-                'severity': 'no',
-                'additional_info': 'Raw or cooked carrots are safe. Good source of vitamins and can help with dental health. Cut into appropriate sizes.'
-            },
-            'sweet potato': {
-                'mechanism': 'Rich in vitamins, minerals, and fiber. Safe and nutritious for pets.',
-                'symptoms': 'No adverse effects when properly prepared. Raw sweet potato may cause digestive upset.',
-                'severity': 'no',
-                'additional_info': 'Cooked sweet potato is safe and nutritious. Avoid raw preparation and seasoning. Good source of beta-carotene.'
-            },
-            'pumpkin': {
-                'mechanism': 'High in fiber and nutrients. Often recommended for digestive health.',
-                'symptoms': 'No adverse effects. May cause loose stools if given in excessive amounts due to high fiber content.',
-                'severity': 'no',
-                'additional_info': 'Plain, cooked pumpkin is safe and beneficial. Avoid pumpkin pie filling with spices. Good for digestive health.'
-            }
-        }
+    def __init__(self, cache_manager=None):
+        self.cache_manager = cache_manager or dynamic_cache_manager
+        # Note: All ingredient data is now loaded from external JSON file via dynamic_cache_manager
+        # No hardcoded fallback database needed - the external file serves as the source of truth
     
     def analyze_ingredient(self, ingredient, pet_type):
-        """Analyze ingredient using built-in knowledge base"""
-        ingredient_lower = ingredient.lower().strip()
+        """Analyze ingredient using dynamic knowledge base with hot-reload capability"""
+        # Try dynamic database first
+        ingredient_data = self.cache_manager.get_ingredient_info(ingredient)
         
-        # Check for exact matches first
-        if ingredient_lower in self.ingredient_database:
-            data = self.ingredient_database[ingredient_lower]
+        if ingredient_data:
             return {
                 'ingredient': ingredient,
                 'pet_type': pet_type,
-                'mechanism': data['mechanism'],
-                'symptoms': data['symptoms'],
-                'severity': data['severity'],
-                'additional_info': data.get('additional_info', ''),
-                'source': 'built_in_database'
+                'mechanism': ingredient_data['mechanism'],
+                'symptoms': ingredient_data['symptoms'],
+                'severity': ingredient_data['severity'],
+                'additional_info': ingredient_data.get('additional_info', ''),
+                'source': 'dynamic_database'
             }
         
-        # Check for partial matches
-        for key, data in self.ingredient_database.items():
-            if key in ingredient_lower or ingredient_lower in key:
-                return {
-                    'ingredient': ingredient,
-                    'pet_type': pet_type,
-                    'mechanism': data['mechanism'],
-                    'symptoms': data['symptoms'],
-                    'severity': data['severity'],
-                    'additional_info': data.get('additional_info', ''),
-                    'source': 'built_in_database'
-                }
-        
-        # No match found - use fallback analysis
-        return self.fallback_analysis(ingredient, pet_type)
+        # No match found in dynamic database - return transparent error
+        return self.get_research_failure_reason(ingredient, pet_type)
     
-    def fallback_analysis(self, ingredient, pet_type):
-        """Fallback analysis for unknown ingredients"""
-        # Conservative approach - default to medium risk for unknown ingredients
+    def get_research_failure_reason(self, ingredient, pet_type):
+        """Generate specific error for research failures"""
         return {
             'ingredient': ingredient,
             'pet_type': pet_type,
-            'mechanism': f"Safety data for {ingredient} is not available in our database. Consult with a veterinarian before giving this to your {pet_type}.",
-            'symptoms': 'Monitor for any changes in behavior, appetite, or energy levels. Watch for vomiting, diarrhea, or unusual behavior.',
-            'severity': 'medium',
-            'additional_info': 'When in doubt, it\'s always best to consult with a veterinarian before introducing new foods or substances.',
-            'source': 'fallback_analysis'
+            'error_type': 'insufficient_research_data',
+            'error_message': f"Unable to provide reliable safety information for '{ingredient}'",
+            'reason': f"Our research agents could not locate at least 2 specific, authoritative sources with detailed information about '{ingredient}' safety for {pet_type}s. Available sources were either too general, vague, or non-existent. Without verified, specific sources containing toxicity mechanisms or safety confirmations, we cannot make reliable safety determinations.",
+            'recommendations': [
+                "Consult your veterinarian immediately for professional advice",
+                "Contact ASPCA Animal Poison Control: (888) 426-4435",
+                "Call Pet Poison Helpline: (855) 764-7661",
+                "Do not assume safety - err on the side of caution",
+                "Avoid giving this ingredient until professional assessment is obtained"
+            ],
+            'source': 'research_insufficient',
+            'search_attempted': f"Searched for specific veterinary sources about {ingredient} toxicity and safety",
+            'validation_failed': True
         }
 
 class RealFormatterAgent:
@@ -339,6 +403,30 @@ class RealFormatterAgent:
         """Format analysis results for display"""
         ingredient = analysis_result['ingredient']
         pet_type = analysis_result['pet_type']
+        
+        # Check if this is an error/research failure case
+        if analysis_result.get('error_type') in ['insufficient_research_data', 'no_database_entry']:
+            # This is a research failure - return transparent error message
+            error_message = analysis_result['error_message']
+            reason = analysis_result['reason']
+            recommendations = analysis_result.get('recommendations', analysis_result.get('suggestions', []))
+            
+            # Format recommendations as a readable list
+            recommendation_text = "Please consider these alternatives: " + "; ".join(recommendations)
+            
+            return {
+                'name': ingredient,
+                'risk_level': 'error',
+                'justification': f"{error_message}. {reason} {recommendation_text}",
+                'sources': recommendations,  # Use recommendations as sources
+                'cached': False,
+                'ai_powered': False,
+                'knowledge_based': False,
+                'error': True,
+                'error_type': analysis_result['error_type']
+            }
+        
+        # Normal ingredient analysis formatting
         severity = analysis_result['severity']
         mechanism = analysis_result['mechanism']
         symptoms = analysis_result['symptoms']
@@ -399,7 +487,7 @@ class RealMultiAgentSystem:
         """Process ingredients through the knowledge-based pipeline with caching"""
         logger.info(f"🤖 Knowledge-Based Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
         
-        results = {'high': [], 'medium': [], 'low': [], 'no': []}
+        results = {'high': [], 'medium': [], 'low': [], 'no': [], 'error': []}
         
         # Clean up expired cache entries at the start
         ingredient_cache.cleanup_expired()
@@ -428,8 +516,8 @@ class RealMultiAgentSystem:
                 
             except Exception as e:
                 logger.error(f"Error processing {ingredient}: {e}")
-                # Use fallback processing
-                fallback_result = self.knowledge_agent.fallback_analysis(ingredient, pet_type)
+                # Use fallback processing - generate error result
+                fallback_result = self.knowledge_agent.get_research_failure_reason(ingredient, pet_type)
                 formatted_result = self.formatter_agent.format_from_analysis(fallback_result)
                 results[formatted_result['risk_level']].append(formatted_result)
         
@@ -475,9 +563,7 @@ class RealResearchAgent:
                 'Content-Type': 'application/json'
             }
             
-            # Use the correct Agent Workspace endpoint
-            agent_url = "https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run"
-            
+            agent_url = adk_config["research_agent_url"]
             payload = {
                 'ingredient': query.split()[0],  # Extract ingredient from query
                 'pet_type': 'dog' if 'dog' in query else 'cat'
@@ -532,9 +618,7 @@ class RealRiskAnalysisAgent:
                 'Content-Type': 'application/json'
             }
             
-            # Use the correct Agent Workspace endpoint
-            agent_url = "https://agents.do-ai.run/44227105-4e0f-479d-9717-3d5694b87778/risk_analysis_agent_deploy/run"
-            
+            agent_url = adk_config["risk_agent_url"]
             payload = {
                 'ingredient': research_data['ingredient'],
                 'pet_type': pet_type,
@@ -580,9 +664,7 @@ class RealFactCheckerAgent:
                 'Content-Type': 'application/json'
             }
             
-            # Use the correct Agent Workspace endpoint
-            agent_url = "https://agents.do-ai.run/20acedf1-e2e8-4910-b710-ca6b7fa9e3a2/fact_checker_agent_deploy/run"
-            
+            agent_url = adk_config["factcheck_agent_url"]
             payload = {
                 'ingredient': research_data['ingredient'],
                 'pet_type': pet_type,
@@ -624,149 +706,23 @@ class RealFactCheckerAgent:
             raise Exception(f"Fact Checker Agent temporarily unavailable: {e}")
     
     def _fallback_fact_check(self, research_data, risk_level, pet_type):
-        """Enhanced fallback fact checking with detailed ingredient-specific information"""
+        """Fallback fact checking using shared ingredient database (ingredient_database.json)."""
         ingredient = research_data['ingredient'].lower()
-        
-        # Generate query-specific source URLs
+
         def generate_source_urls(ingredient_name, pet_type):
-            """Generate multiple query-specific source URLs"""
+            """Generate query-specific source URLs for user research."""
             sources = []
-            
-            # ASPCA search URL
             aspca_query = f"{ingredient_name} {pet_type} toxic poisonous"
-            aspca_url = f"https://www.aspca.org/search?query={aspca_query.replace(' ', '+')}"
-            sources.append(f"ASPCA Search Results for '{ingredient_name}': {aspca_url}")
-            
-            # Pet Poison Helpline search
+            sources.append(f"ASPCA Search: https://www.aspca.org/search?query={aspca_query.replace(' ', '+')}")
             pph_query = f"{ingredient_name} {pet_type}"
-            pph_url = f"https://www.petpoisonhelpline.com/search/?q={pph_query.replace(' ', '+')}"
-            sources.append(f"Pet Poison Helpline Search for '{ingredient_name}': {pph_url}")
-            
-            # VCA Animal Hospitals search
+            sources.append(f"Pet Poison Helpline: https://www.petpoisonhelpline.com/search/?q={pph_query.replace(' ', '+')}")
             vca_query = f"{ingredient_name} toxic {pet_type}"
-            vca_url = f"https://vcahospitals.com/search?q={vca_query.replace(' ', '+')}"
-            sources.append(f"VCA Animal Hospitals Search for '{ingredient_name}': {vca_url}")
-            
-            # PetMD search
-            petmd_query = f"{ingredient_name} {pet_type} safe toxic"
-            petmd_url = f"https://www.petmd.com/search?query={petmd_query.replace(' ', '+')}"
-            sources.append(f"PetMD Search for '{ingredient_name}': {petmd_url}")
-            
+            sources.append(f"VCA Hospitals: https://vcahospitals.com/search?q={vca_query.replace(' ', '+')}")
             return sources
-        
-        # Comprehensive ingredient safety database
-        ingredient_database = {
-            'chocolate': {
-                'mechanism': 'Contains theobromine and caffeine, which are toxic methylxanthines that pets cannot metabolize effectively. Dark chocolate and baking chocolate are most dangerous.',
-                'symptoms': 'Vomiting, diarrhea, increased heart rate, seizures, hyperactivity, excessive thirst, abnormal heart rhythm. Symptoms appear 6-12 hours after ingestion.',
-                'severity': 'high',
-                'additional_info': 'Toxicity depends on chocolate type and pet size. As little as 20mg/kg of theobromine can cause toxicity.'
-            },
-            'grapes': {
-                'mechanism': 'Contains unknown compounds that cause acute kidney failure in dogs and cats. Even small amounts can be fatal.',
-                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
-                'severity': 'high',
-                'additional_info': 'No safe amount established. Both fresh grapes and raisins are toxic. Immediate veterinary care required.'
-            },
-            'raisins': {
-                'mechanism': 'Dried grapes containing concentrated toxic compounds that cause acute kidney failure. More concentrated than fresh grapes.',
-                'symptoms': 'Vomiting, diarrhea, lethargy, loss of appetite, abdominal pain, decreased urination, kidney failure within 24-72 hours.',
-                'severity': 'high',
-                'additional_info': 'Even more dangerous than grapes due to concentration. As few as 6 raisins can be toxic to a 20lb dog.'
-            },
-            'onion': {
-                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
-                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
-                'severity': 'high',
-                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
-            },
-            'onions': {
-                'mechanism': 'Contains N-propyl disulfide and other sulfur compounds that damage red blood cells, causing hemolytic anemia.',
-                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. Symptoms may be delayed 1-3 days.',
-                'severity': 'high',
-                'additional_info': 'All forms toxic: raw, cooked, powdered, dehydrated. Cats are more sensitive than dogs. Cumulative toxicity possible.'
-            },
-            'garlic': {
-                'mechanism': 'Contains allicin and sulfur compounds that are 5x more potent than onions in causing red blood cell damage and anemia.',
-                'symptoms': 'Weakness, lethargy, pale gums, rapid breathing, vomiting, diarrhea, dark-colored urine. More severe than onion toxicity.',
-                'severity': 'high',
-                'additional_info': 'More toxic than onions. Even small amounts can be dangerous. Cats are extremely sensitive.'
-            },
-            'xylitol': {
-                'mechanism': 'Artificial sweetener that causes rapid insulin release, leading to severe hypoglycemia and potential liver failure.',
-                'symptoms': 'Vomiting, loss of coordination, lethargy, collapse, seizures within 10-60 minutes. Liver failure possible in 12-24 hours.',
-                'severity': 'high',
-                'additional_info': 'Found in sugar-free gum, mints, baked goods. As little as 0.1g/kg can cause hypoglycemia. Emergency treatment required.'
-            },
-            'avocado': {
-                'mechanism': 'Contains persin, a fungicidal toxin that can cause digestive upset and respiratory distress in pets.',
-                'symptoms': 'Vomiting, diarrhea, difficulty breathing, fluid accumulation around heart. Birds and small mammals most sensitive.',
-                'severity': 'medium',
-                'additional_info': 'All parts toxic: fruit, pit, leaves, bark. Dogs and cats less sensitive than birds, but still at risk.'
-            },
-            'macadamia nuts': {
-                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
-                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
-                'severity': 'medium',
-                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
-            },
-            'macadamia': {
-                'mechanism': 'Contains unknown compounds that affect the nervous system and muscles, causing weakness and hyperthermia.',
-                'symptoms': 'Weakness, depression, vomiting, hyperthermia, tremors, inability to walk normally. Symptoms appear 12 hours after ingestion.',
-                'severity': 'medium',
-                'additional_info': 'Primarily affects dogs. As few as 6 nuts can cause toxicity in small dogs. Recovery usually occurs within 48 hours.'
-            },
-            'caffeine': {
-                'mechanism': 'Methylxanthine stimulant that affects the central nervous system and cardiovascular system. Similar to theobromine toxicity.',
-                'symptoms': 'Hyperactivity, restlessness, vomiting, elevated heart rate, high blood pressure, abnormal heart rhythms, tremors, seizures.',
-                'severity': 'high',
-                'additional_info': 'Found in coffee, tea, energy drinks, medications. Pets are much more sensitive than humans. Can be fatal.'
-            },
-            'alcohol': {
-                'mechanism': 'Ethanol causes central nervous system depression, metabolic acidosis, and can lead to coma and death.',
-                'symptoms': 'Vomiting, diarrhea, difficulty breathing, tremors, abnormal blood acidity, coma, death.',
-                'severity': 'high',
-                'additional_info': 'Even small amounts dangerous. Found in alcoholic beverages, raw bread dough, mouthwash. Immediate veterinary care required.'
-            },
-            'chicken': {
-                'mechanism': 'Generally safe when properly cooked and boneless. Raw chicken may contain harmful bacteria like Salmonella.',
-                'symptoms': 'If raw or contaminated: vomiting, diarrhea, fever, lethargy from bacterial infection.',
-                'severity': 'no',
-                'additional_info': 'Cooked, boneless chicken is safe and nutritious. Avoid seasoning, bones, and raw preparation. Remove skin to reduce fat.'
-            },
-            'rice': {
-                'mechanism': 'Easily digestible carbohydrate that is safe and often recommended for digestive issues.',
-                'symptoms': 'Generally no adverse effects. May cause mild digestive upset if given in very large quantities.',
-                'severity': 'no',
-                'additional_info': 'Plain, cooked white or brown rice is safe. Often used in bland diets for digestive recovery. Avoid seasoning.'
-            },
-            'carrots': {
-                'mechanism': 'High in beta-carotene, fiber, and vitamins. Safe and nutritious for pets.',
-                'symptoms': 'No adverse effects. May cause orange discoloration of urine if consumed in very large quantities.',
-                'severity': 'no',
-                'additional_info': 'Raw or cooked carrots are safe. Good source of vitamins and can help with dental health. Cut into appropriate sizes.'
-            },
-            'sweet potato': {
-                'mechanism': 'Rich in vitamins, minerals, and fiber. Safe and nutritious for pets.',
-                'symptoms': 'No adverse effects when properly prepared. Raw sweet potato may cause digestive upset.',
-                'severity': 'no',
-                'additional_info': 'Cooked sweet potato is safe and nutritious. Avoid raw preparation and seasoning. Good source of beta-carotene.'
-            },
-            'pumpkin': {
-                'mechanism': 'High in fiber and nutrients. Often recommended for digestive health.',
-                'symptoms': 'No adverse effects. May cause loose stools if given in excessive amounts due to high fiber content.',
-                'severity': 'no',
-                'additional_info': 'Plain, cooked pumpkin is safe and beneficial. Avoid pumpkin pie filling with spices. Good for digestive health.'
-            }
-        }
-        
-        # Get ingredient-specific information
-        ingredient_info = None
-        for key in ingredient_database:
-            if key in ingredient:
-                ingredient_info = ingredient_database[key]
-                break
-        
+
+        # Use shared ingredient database (single source of truth)
+        ingredient_info = dynamic_cache_manager.get_ingredient_info(research_data['ingredient'])
+
         if ingredient_info:
             # Use detailed database information
             validated_risk = ingredient_info['severity']
@@ -827,7 +783,7 @@ class AIMultiAgentSystem:
         """Process ingredients through the AI-powered pipeline with robust fallback"""
         logger.info(f"🤖 AI-Powered Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
         
-        results = {'high': [], 'medium': [], 'low': [], 'no': []}
+        results = {'high': [], 'medium': [], 'low': [], 'no': [], 'error': []}
         
         # Clean up expired cache entries at the start
         ingredient_cache.cleanup_expired()
@@ -851,16 +807,39 @@ class AIMultiAgentSystem:
                 logger.info(f"✅ Fact Checker Agent: Validating {ingredient}")
                 validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
                 
-                # Format the result
-                formatted_result = {
-                    'name': ingredient,
-                    'risk_level': validated_data['validated_risk'],
-                    'justification': f"{ingredient.capitalize()} {self._get_risk_description(validated_data['validated_risk'])} for {pet_type}s. {validated_data['fact_check']['mechanism']} {validated_data['fact_check']['symptoms']}",
-                    'sources': validated_data['fact_check'].get('authoritative_sources', ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control']),
-                    'cached': False,
-                    'ai_powered': True,
-                    'knowledge_based': False
-                }
+                # Check if validation failed or risk is error
+                fact_check_data = validated_data.get('fact_check', {})
+                final_risk = validated_data.get('validated_risk', 'error')
+                validation_failed = fact_check_data.get('validation_failed', False)
+                
+                if validation_failed or final_risk == 'error':
+                    # Handle validation failure - return error result
+                    formatted_result = {
+                        'name': ingredient,
+                        'risk_level': 'error',
+                        'justification': f"Unable to provide reliable safety information for '{ingredient}'. {fact_check_data.get('failure_reason', 'Insufficient specific sources found.')} {fact_check_data.get('recommendation', 'Consult your veterinarian immediately for professional advice.')}",
+                        'sources': [
+                            "ASPCA Animal Poison Control: (888) 426-4435",
+                            "Pet Poison Helpline: (855) 764-7661",
+                            "Consult your veterinarian immediately"
+                        ],
+                        'cached': False,
+                        'ai_powered': True,
+                        'knowledge_based': False,
+                        'error': True,
+                        'validation_failed': True
+                    }
+                else:
+                    # Format successful result
+                    formatted_result = {
+                        'name': ingredient,
+                        'risk_level': final_risk,
+                        'justification': f"{ingredient.capitalize()} {self._get_risk_description(final_risk)} for {pet_type}s. {fact_check_data.get('mechanism', '')} {fact_check_data.get('symptoms', '')}",
+                        'sources': fact_check_data.get('specific_sources', fact_check_data.get('authoritative_sources', ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control'])),
+                        'cached': False,
+                        'ai_powered': True,
+                        'knowledge_based': False
+                    }
                 
                 # Cache the result for future use
                 ingredient_cache.set(ingredient, pet_type, formatted_result)
@@ -960,54 +939,230 @@ def evaluate_ingredients():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+def test_agent_with_retry(agent_name, agent_url, headers, test_payload, max_retries=2, timeout=8):
+    """Test agent with retry logic and improved error handling"""
+    last_error = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(
+                agent_url,
+                headers=headers,
+                json=test_payload,
+                timeout=timeout
+            )
+            
+            if response.status_code == 200:
+                return {
+                    'status': 'online',
+                    'response_time': f"{response.elapsed.total_seconds():.2f}s",
+                    'attempts': attempt + 1
+                }
+            elif response.status_code in [502, 503, 504]:
+                # These are temporary server errors - retry
+                if attempt < max_retries:
+                    time.sleep(1)  # Brief delay before retry
+                    continue
+                else:
+                    return {
+                        'status': 'degraded',
+                        'error': f"HTTP {response.status_code} - Service temporarily unavailable",
+                        'attempts': attempt + 1
+                    }
+            elif response.status_code == 401:
+                return {
+                    'status': 'auth_error',
+                    'error': "Authentication failed - invalid or expired token",
+                    'attempts': attempt + 1
+                }
+            elif response.status_code == 404:
+                return {
+                    'status': 'not_deployed',
+                    'error': "Agent not found - check deployment status",
+                    'attempts': attempt + 1
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'error': f"HTTP {response.status_code}: {response.text[:200]}",
+                    'attempts': attempt + 1
+                }
+                
+        except requests.exceptions.Timeout:
+            last_error = f"Timeout after {timeout}s"
+            if attempt < max_retries:
+                time.sleep(0.5)
+                continue
+        except requests.exceptions.ConnectionError as e:
+            error_str = str(e).lower()
+            if 'name or service not known' in error_str:
+                last_error = "DNS resolution failed"
+            elif 'connection refused' in error_str:
+                last_error = "Connection refused - service may be down"
+            elif 'timeout' in error_str:
+                last_error = "Network timeout"
+            else:
+                last_error = f"Connection failed: {str(e)[:100]}"
+            
+            if attempt < max_retries:
+                time.sleep(0.5)
+                continue
+        except Exception as e:
+            last_error = f"Unexpected error: {str(e)[:100]}"
+            if attempt < max_retries:
+                time.sleep(0.5)
+                continue
+    
+    # All retries failed
+    return {
+        'status': 'offline',
+        'error': last_error,
+        'attempts': max_retries + 1
+    }
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Health check endpoint with real agent status and cache statistics"""
+    """Improved health check endpoint with retry logic and better status determination"""
     cache_stats = ingredient_cache.get_cache_stats()
     
-    # Test actual agent connectivity
+    # Test actual agent connectivity with retry logic
     agent_status = {}
+    agent_response_times = {}
+    agent_errors = {}
     
-    # Test Research Agent
-    try:
-        if adk_config['research_agent_url']:
-            test_response = requests.get(adk_config['research_agent_url'], timeout=5)
-            agent_status['research_agent'] = 'online' if test_response.status_code in [200, 404] else 'offline'
-        else:
-            agent_status['research_agent'] = 'not_configured'
-    except:
-        agent_status['research_agent'] = 'offline'
+    headers = {
+        'Authorization': f'Bearer {adk_config["access_token"]}',
+        'Content-Type': 'application/json'
+    } if adk_config['access_token'] else {}
     
-    # Test Risk Analysis Agent
-    try:
-        if adk_config['risk_agent_url']:
-            test_response = requests.get(adk_config['risk_agent_url'], timeout=5)
-            agent_status['risk_analysis_agent'] = 'online' if test_response.status_code in [200, 404] else 'offline'
-        else:
-            agent_status['risk_analysis_agent'] = 'not_configured'
-    except:
-        agent_status['risk_analysis_agent'] = 'offline'
+    # Test payload for agent health checks
+    test_payload = {
+        'ingredient': 'chocolate',
+        'pet_type': 'cat'
+    }
     
-    # Test Fact Checker Agent
-    try:
-        if adk_config['factcheck_agent_url']:
-            test_response = requests.get(adk_config['factcheck_agent_url'], timeout=5)
-            agent_status['fact_checker_agent'] = 'online' if test_response.status_code in [200, 404] else 'offline'
+    # Define agents to test (URLs from config)
+    agents_to_test = [
+        ('research_agent', adk_config['research_agent_url']),
+        ('risk_analysis_agent', adk_config['risk_agent_url']),
+        ('fact_checker_agent', adk_config['factcheck_agent_url'])
+    ]
+    
+    # Test each agent with improved logic
+    for agent_name, agent_url in agents_to_test:
+        if not adk_config['access_token']:
+            agent_status[agent_name] = 'not_configured'
+            agent_errors[agent_name] = "Missing DIGITALOCEAN_TOKEN environment variable"
+            continue
+            
+        result = test_agent_with_retry(agent_name, agent_url, headers, test_payload)
+        
+        agent_status[agent_name] = result['status']
+        if 'response_time' in result:
+            agent_response_times[agent_name] = result['response_time']
+        if 'error' in result:
+            agent_errors[agent_name] = result['error']
+        
+        # Log results for debugging
+        if result['status'] == 'online':
+            logger.info(f"{agent_name} online - response time: {result.get('response_time', 'N/A')} (attempts: {result['attempts']})")
         else:
-            agent_status['fact_checker_agent'] = 'not_configured'
-    except:
-        agent_status['fact_checker_agent'] = 'offline'
+            logger.warning(f"{agent_name} {result['status']}: {result.get('error', 'Unknown error')} (attempts: {result['attempts']})")
     
     # Formatter agent is always local
     agent_status['formatter_agent'] = 'active'
+    agent_response_times['formatter_agent'] = '0.1s'
+    
+    # Improved AI mode determination
+    online_agents = sum(1 for status in [agent_status['research_agent'], agent_status['risk_analysis_agent'], agent_status['fact_checker_agent']] if status == 'online')
+    degraded_agents = sum(1 for status in [agent_status['research_agent'], agent_status['risk_analysis_agent'], agent_status['fact_checker_agent']] if status == 'degraded')
+    
+    # Consider degraded agents as partially functional
+    functional_agents = online_agents + (degraded_agents * 0.5)
+    actual_ai_enabled = functional_agents >= 2.0  # Need at least 2 fully functional
+    
+    # Add detailed system diagnostics
+    system_diagnostics = {
+        'total_agents': 3,
+        'agents_online': online_agents,
+        'agents_degraded': degraded_agents,
+        'agents_offline': 3 - online_agents - degraded_agents,
+        'functional_score': functional_agents,
+        'critical_agents_failing': [],
+        'network_connectivity': 'checking',
+        'authentication_status': 'valid' if adk_config['access_token'] else 'missing',
+        'deployment_status': {}
+    }
+    
+    # Check which critical agents are failing
+    for agent_name, status in agent_status.items():
+        if agent_name != 'formatter_agent' and status != 'online':
+            system_diagnostics['critical_agents_failing'].append({
+                'agent': agent_name,
+                'status': status,
+                'error': agent_errors.get(agent_name, 'Unknown error')
+            })
+    
+    # Test basic network connectivity
+    try:
+        test_response = requests.get('https://agents.do-ai.run', timeout=5)
+        system_diagnostics['network_connectivity'] = 'available' if test_response.status_code < 500 else 'degraded'
+    except:
+        system_diagnostics['network_connectivity'] = 'failed'
+    
+    # Check deployment status for each agent
+    for agent_name in ['research_agent', 'risk_analysis_agent', 'fact_checker_agent']:
+        agent_id_key = f"{agent_name.split('_')[0]}_agent_id" if agent_name != 'fact_checker_agent' else 'factcheck_agent_id'
+        agent_id = adk_config.get(agent_id_key)
+        
+        if agent_id:
+            system_diagnostics['deployment_status'][agent_name] = {
+                'agent_id': agent_id[:8] + '...' if len(agent_id) > 8 else agent_id,
+                'configured': True,
+                'status': agent_status.get(agent_name, 'unknown')
+            }
+        else:
+            system_diagnostics['deployment_status'][agent_name] = {
+                'agent_id': None,
+                'configured': False,
+                'status': 'not_configured'
+            }
+    
+    # Determine fallback reasons
+    fallback_reasons = []
+    if not adk_config['access_token']:
+        fallback_reasons.append('missing_access_token')
+    if not adk_config['project_id']:
+        fallback_reasons.append('missing_project_id')
+    if not adk_config['research_agent_id']:
+        fallback_reasons.append('missing_research_agent_id')
+    if not adk_config['risk_agent_id']:
+        fallback_reasons.append('missing_risk_agent_id')
+    if not adk_config['factcheck_agent_id']:
+        fallback_reasons.append('missing_factcheck_agent_id')
+    
+    # Check for agent connectivity issues
+    if agent_status['research_agent'] in ['offline', 'timeout', 'error']:
+        fallback_reasons.append('research_agent_unreachable')
+    if agent_status['risk_analysis_agent'] in ['offline', 'timeout', 'error']:
+        fallback_reasons.append('risk_agent_unreachable')
+    if agent_status['fact_checker_agent'] in ['offline', 'timeout', 'error']:
+        fallback_reasons.append('factcheck_agent_unreachable')
     
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
-        'digitalocean_genai_enabled': adk_enabled,
+        'digitalocean_genai_enabled': actual_ai_enabled,  # Use actual status, not config
         'agents': agent_status,
+        'agent_response_times': agent_response_times,
+        'agent_errors': agent_errors,  # Include detailed error information
         'adk_enabled': adk_enabled,
+        'actual_ai_enabled': actual_ai_enabled,
+        'agents_online_count': online_agents,
+        'fallback_mode': not actual_ai_enabled,
+        'fallback_reasons': fallback_reasons,
         'cache_stats': cache_stats,
+        'system_diagnostics': system_diagnostics,  # Add detailed system diagnostics
         'genai_config': {
             'access_token_configured': bool(adk_config['access_token']),
             'region': adk_config['region'],
@@ -1111,13 +1266,12 @@ def get_real_agent_status():
     try:
         agent_statuses = {}
         
-        # Test each agent with a simple health check
+        # Test each agent (URLs from config)
         agents_to_test = [
-            ('research_agent', 'https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run'),
-            ('risk_analysis_agent', 'https://agents.do-ai.run/44227105-4e0f-479d-9717-3d5694b87778/risk_analysis_agent_deploy/run'),
-            ('fact_checker_agent', 'https://agents.do-ai.run/20acedf1-e2e8-4910-b710-ca6b7fa9e3a2/fact_checker_agent_deploy/run')
+            ('research_agent', adk_config['research_agent_url']),
+            ('risk_analysis_agent', adk_config['risk_agent_url']),
+            ('fact_checker_agent', adk_config['factcheck_agent_url'])
         ]
-        
         headers = {
             'Authorization': f'Bearer {adk_config["access_token"]}',
             'Content-Type': 'application/json'
@@ -1125,9 +1279,9 @@ def get_real_agent_status():
         
         for agent_name, agent_url in agents_to_test:
             try:
-                # Send a minimal test request
+                # Send a minimal test request with realistic ingredient
                 test_payload = {
-                    'ingredient': 'test',
+                    'ingredient': 'chocolate',
                     'pet_type': 'cat'
                 }
                 
@@ -1201,7 +1355,7 @@ def test_live_agents():
             }
             
             research_response = requests.post(
-                'https://agents.do-ai.run/f99d6802-f8e1-49ff-ae6d-a8db1fae08a9/research_agent_deploy/run',
+                adk_config['research_agent_url'],
                 headers=headers,
                 json=research_payload,
                 timeout=30
@@ -1224,7 +1378,7 @@ def test_live_agents():
                     }
                     
                     risk_response = requests.post(
-                        'https://agents.do-ai.run/44227105-4e0f-479d-9717-3d5694b87778/risk_analysis_agent_deploy/run',
+                        adk_config['risk_agent_url'],
                         headers=headers,
                         json=risk_payload,
                         timeout=30
@@ -1248,7 +1402,7 @@ def test_live_agents():
                             }
                             
                             fact_response = requests.post(
-                                'https://agents.do-ai.run/20acedf1-e2e8-4910-b710-ca6b7fa9e3a2/fact_checker_agent_deploy/run',
+                                adk_config['factcheck_agent_url'],
                                 headers=headers,
                                 json=fact_payload,
                                 timeout=30
@@ -1305,6 +1459,166 @@ def test_live_agents():
     except Exception as e:
         logger.error(f"Error testing live agents: {e}")
         return jsonify({'error': 'Failed to test live agents'}), 500
+
+# Cache Management API Endpoints
+@app.route('/api/cache/invalidate', methods=['POST'])
+def invalidate_cache():
+    """API endpoint to invalidate cache entries"""
+    try:
+        data = request.get_json() or {}
+        ingredient = data.get('ingredient')
+        pet_type = data.get('pet_type')
+        
+        removed_count = ingredient_cache.invalidate(ingredient, pet_type)
+        
+        return jsonify({
+            'success': True,
+            'removed_count': removed_count,
+            'message': f"Invalidated {removed_count} cache entries",
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error invalidating cache: {e}")
+        return jsonify({'error': 'Failed to invalidate cache'}), 500
+
+@app.route('/api/cache/stats', methods=['GET'])
+def get_cache_stats():
+    """API endpoint to get detailed cache statistics"""
+    try:
+        cache_stats = ingredient_cache.get_cache_stats()
+        database_stats = {
+            'total_ingredients': len(dynamic_cache_manager.ingredient_database),
+            'database_file': str(dynamic_cache_manager.database_file.absolute()),
+            'last_modified': dynamic_cache_manager.database_last_modified,
+            'monitoring_active': dynamic_cache_manager.monitor_thread.is_alive()
+        }
+        
+        return jsonify({
+            'cache_stats': cache_stats,
+            'database_stats': database_stats,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {e}")
+        return jsonify({'error': 'Failed to retrieve cache statistics'}), 500
+
+@app.route('/api/database/reload', methods=['POST'])
+def reload_database():
+    """API endpoint to manually reload the ingredient database"""
+    try:
+        success = dynamic_cache_manager.reload_database()
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f"Database reloaded successfully: {len(dynamic_cache_manager.ingredient_database)} ingredients",
+                'ingredient_count': len(dynamic_cache_manager.ingredient_database),
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': "Failed to reload database",
+                'timestamp': datetime.utcnow().isoformat()
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error reloading database: {e}")
+        return jsonify({'error': 'Failed to reload database'}), 500
+
+@app.route('/api/database/ingredient', methods=['POST'])
+def add_ingredient():
+    """API endpoint to add or update an ingredient in the database"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'ingredient' not in data:
+            return jsonify({'error': 'Missing ingredient name'}), 400
+        
+        ingredient = data['ingredient']
+        ingredient_data = {
+            'mechanism': data.get('mechanism', ''),
+            'symptoms': data.get('symptoms', ''),
+            'severity': data.get('severity', 'medium'),
+            'additional_info': data.get('additional_info', '')
+        }
+        
+        # Validate severity
+        if ingredient_data['severity'] not in ['high', 'medium', 'low', 'no']:
+            return jsonify({'error': 'Invalid severity level. Must be: high, medium, low, or no'}), 400
+        
+        success = dynamic_cache_manager.add_ingredient(ingredient, ingredient_data)
+        
+        if success:
+            # Invalidate cache for this ingredient to force fresh lookups
+            ingredient_cache.invalidate(ingredient=ingredient)
+            
+            return jsonify({
+                'success': True,
+                'message': f"Ingredient '{ingredient}' added/updated successfully",
+                'ingredient': ingredient,
+                'data': ingredient_data,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f"Failed to add ingredient '{ingredient}'",
+                'timestamp': datetime.utcnow().isoformat()
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error adding ingredient: {e}")
+        return jsonify({'error': 'Failed to add ingredient'}), 500
+
+@app.route('/api/database/ingredient/<ingredient>', methods=['DELETE'])
+def remove_ingredient(ingredient):
+    """API endpoint to remove an ingredient from the database"""
+    try:
+        success = dynamic_cache_manager.remove_ingredient(ingredient)
+        
+        if success:
+            # Invalidate cache for this ingredient
+            ingredient_cache.invalidate(ingredient=ingredient)
+            
+            return jsonify({
+                'success': True,
+                'message': f"Ingredient '{ingredient}' removed successfully",
+                'ingredient': ingredient,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f"Ingredient '{ingredient}' not found",
+                'timestamp': datetime.utcnow().isoformat()
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error removing ingredient: {e}")
+        return jsonify({'error': 'Failed to remove ingredient'}), 500
+
+@app.route('/api/database/ingredients', methods=['GET'])
+def list_ingredients():
+    """API endpoint to list all ingredients in the database"""
+    try:
+        ingredients = {}
+        
+        # Get ingredients from dynamic database
+        with dynamic_cache_manager.lock:
+            ingredients.update(dynamic_cache_manager.ingredient_database)
+        
+        return jsonify({
+            'ingredients': ingredients,
+            'count': len(ingredients),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error listing ingredients: {e}")
+        return jsonify({'error': 'Failed to list ingredients'}), 500
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5001))

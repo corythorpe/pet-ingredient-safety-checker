@@ -184,6 +184,7 @@ class PetIngredientChecker {
 
     generateResultsHTML(results) {
         const categories = [
+            { key: 'error', label: 'Unable to Assess', icon: '❓', description: 'Insufficient data - consult your veterinarian' },
             { key: 'high', label: 'High Risk', icon: '⚠️', description: 'Potentially life-threatening - avoid completely' },
             { key: 'medium', label: 'Medium Risk', icon: '⚡', description: 'May cause serious health issues - use caution' },
             { key: 'low', label: 'Low Risk', icon: '⚪', description: 'May cause mild reactions - monitor closely' },

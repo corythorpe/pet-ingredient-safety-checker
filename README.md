@@ -32,7 +32,7 @@ A sophisticated multi-agent web application that helps pet owners determine the 
 
 ### Prerequisites
 - Python 3.8+
-- OpenAI API key (for AI analysis)
+- DigitalOcean token (for AI-powered analysis via GenAI agents); optional—app falls back to knowledge-based mode if not set
 
 ### Installation
 
@@ -61,11 +61,11 @@ A sophisticated multi-agent web application that helps pet owners determine the 
 
 5. **Start the application**
    ```bash
-   python start_app.py
+   python app.py
    ```
 
 6. **Open your browser**
-   Navigate to `http://localhost:5000`
+   Navigate to `http://localhost:5001` (or the port set by `PORT` in `.env`)
 
 ## 🏗️ Architecture
 
@@ -78,9 +78,8 @@ User Input → Research Agent → Risk Analysis Agent → Fact Checker Agent →
 
 #### Research Agent
 - Generates targeted search queries for veterinary sources
-- Scrapes official websites (ASPCA, Pet Poison Helpline, VCA Hospitals)
-- Uses OpenAI GPT-4 for intelligent analysis of research data
-- Implements fallback analysis for known dangerous ingredients
+- Uses DigitalOcean GenAI (ADK) for research; requires at least 2 specific, authoritative sources
+- Falls back to shared ingredient database (`ingredient_database.json`) when agents are unavailable or data is insufficient
 
 #### Risk Analysis Agent
 - Maps research findings to standardized risk levels
@@ -97,35 +96,19 @@ User Input → Research Agent → Risk Analysis Agent → Fact Checker Agent →
 - Structures data for frontend consumption
 - Includes confidence scoring and source attribution
 
-### Database Schema
-```sql
-CREATE TABLE ingredient_research (
-    id UUID PRIMARY KEY,
-    ingredient_name VARCHAR(255) NOT NULL,
-    pet_type VARCHAR(50) NOT NULL,
-    category VARCHAR(50) NOT NULL,
-    research_hash VARCHAR(64) UNIQUE NOT NULL,
-    toxicity_data TEXT NOT NULL,
-    sources TEXT NOT NULL,
-    symptoms TEXT,
-    mechanism TEXT,
-    risk_level VARCHAR(20) NOT NULL,
-    confidence_score INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    is_validated BOOLEAN DEFAULT FALSE,
-    validation_count INTEGER DEFAULT 0
-);
-```
+### Data and cache
+- **Ingredient data**: `ingredient_database.json` (mechanism, symptoms, severity, additional_info).
+- **Result cache**: File-based pickle cache under `cache/` (15-day TTL) to reduce agent calls.
+- Admin and API endpoints support cache invalidation and database reload.
 
 ## 🧪 Testing
 
 ### Run the test suite
 ```bash
-python test_simple.py
+python test_improved_agents.py
 ```
 
-This runs a comprehensive test of the multi-agent system using mock data to verify:
+This runs tests for the improved agents (source validation, error handling). You can also run `python test_agent_fixes.py` for agent fix verification. The suite verifies:
 - Agent communication and data flow
 - Risk categorization logic
 - Result formatting
@@ -152,18 +135,23 @@ Ingredients: chocolate, chicken, rice, onion
 
 ```
 petproject/
-├── backend/
-│   └── app.py              # Main Flask application with multi-agent system
+├── app.py                  # Main Flask application (multi-agent system, API, web UI)
+├── ingredient_database.json  # Ingredient safety data (single source of truth)
+├── research_agent.py      # ADK Research Agent
+├── risk_analysis_agent.py # ADK Risk Analysis Agent
+├── fact_checker_agent.py   # ADK Fact Checker Agent
 ├── static/
-│   ├── script.js           # Frontend JavaScript
-│   └── styles.css          # CSS styling
+│   ├── script.js          # Frontend JavaScript
+│   └── styles.css         # CSS styling
 ├── templates/
-│   └── index.html          # Main HTML template
-├── agents/                 # Individual agent implementations (legacy)
-├── requirements.txt        # Python dependencies
+│   ├── index.html         # Main UI
+│   ├── admin_dashboard.html
+│   └── how_it_works.html
+├── backend/               # Reserved for future modules (see backend/README.md)
+├── requirements.txt       # Python dependencies
 ├── .env.example           # Environment configuration template
-├── start_app.py           # Application startup script
-├── test_simple.py         # Test suite for multi-agent system
+├── test_improved_agents.py  # Agent and pipeline tests
+├── test_agent_fixes.py    # Agent fix verification
 ├── Dockerfile             # Docker configuration
 └── README.md              # This file
 ```
@@ -174,10 +162,10 @@ petproject/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key for AI analysis | Required |
-| `DATABASE_URL` | Database connection string | `sqlite:///pet_safety.db` |
+| `DIGITALOCEAN_TOKEN` | DigitalOcean API token (for GenAI agents) | Optional—enables AI mode |
+| `DIGITALOCEAN_GENAI_*` | Agent IDs, project ID, optional agent URLs | See `.env.example` |
 | `FLASK_ENV` | Flask environment | `development` |
-| `PORT` | Server port | `5000` |
+| `PORT` | Server port | `5001` |
 | `SECRET_KEY` | Flask secret key | `dev_secret_key_change_in_production` |
 
 ### Risk Level Criteria
@@ -237,7 +225,7 @@ Cache statistics and performance metrics.
 ### Docker Deployment
 ```bash
 docker build -t pet-safety-checker .
-docker run -p 5000:5000 -e OPENAI_API_KEY=your_key pet-safety-checker
+docker run -p 8080:8080 -e DIGITALOCEAN_TOKEN=your_token pet-safety-checker
 ```
 
 ### DigitalOcean App Platform
@@ -271,7 +259,7 @@ This application is for informational purposes only and should not replace profe
 ## 🆘 Support
 
 If you encounter any issues or have questions:
-1. Check the test suite: `python test_simple.py`
+1. Check the test suite: `python test_improved_agents.py`
 2. Review the logs for error messages
 3. Ensure all environment variables are set correctly
 4. Verify your OpenAI API key is valid
