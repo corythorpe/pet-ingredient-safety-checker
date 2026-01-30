@@ -1373,6 +1373,29 @@ def health_check():
         'mode': 'quick_health_check'
     })
 
+@app.route('/api/test-websearch', methods=['GET'])
+def test_web_search():
+    """Test endpoint to verify web search functionality"""
+    ingredient = request.args.get('ingredient', 'chocolate')
+    pet_type = request.args.get('pet_type', 'dog')
+    
+    try:
+        results = search_web_for_ingredient(ingredient, pet_type, max_results=3)
+        return jsonify({
+            'success': True,
+            'web_search_available': WEB_SEARCH_AVAILABLE,
+            'ingredient': ingredient,
+            'pet_type': pet_type,
+            'results_count': len(results),
+            'results': results
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'web_search_available': WEB_SEARCH_AVAILABLE,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/agent-metrics', methods=['GET'])
 def get_agent_metrics():
     """Get real-time agent performance metrics"""
