@@ -1257,185 +1257,21 @@ def test_agent_with_retry(agent_name, agent_url, headers, test_payload, max_retr
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Lightweight health check endpoint - quick response for App Platform"""
-    # Quick check mode - don't test agents on every health check
-    quick_mode = request.args.get('quick', 'true').lower() == 'true'
+    """Lightweight health check endpoint - always fast for App Platform
     
+    For detailed diagnostics with agent testing, use /api/health/detailed
+    """
     cache_stats = ingredient_cache.get_cache_stats()
     
-    # Basic health response (fast)
-    if quick_mode:
-        return jsonify({
-            'status': 'healthy',
-            'timestamp': datetime.utcnow().isoformat(),
-            'digitalocean_genai_enabled': adk_enabled,
-            'adk_enabled': adk_enabled,
-            'access_token_configured': bool(adk_config['access_token']),
-            'agents_configured': True,
-            'cache_active': True,
-            'cache_stats': cache_stats,
-            'mode': 'quick_health_check'
-        })
-    
-    # Detailed check mode - test agents (slower)
-    agent_status = {}
-    agent_response_times = {}
-    agent_errors = {}
-    
-    headers = {
-        'Authorization': f'Bearer {adk_config["access_token"]}',
-        'Content-Type': 'application/json'
-    } if adk_config['access_token'] else {}
-    
-    # Test payload for agent health checks
-    test_payload = {
-        'ingredient': 'chocolate',
-        'pet_type': 'cat'
-    }
-    
-    # Define agents to test (URLs from config)
-    agents_to_test = [
-        ('research_agent', adk_config['research_agent_url']),
-        ('risk_analysis_agent', adk_config['risk_agent_url']),
-        ('fact_checker_agent', adk_config['factcheck_agent_url'])
-    ]
-    
-    # Test each agent with improved logic
-    for agent_name, agent_url in agents_to_test:
-        if not adk_config['access_token']:
-            agent_status[agent_name] = 'not_configured'
-            agent_errors[agent_name] = "Missing DIGITALOCEAN_TOKEN environment variable"
-            continue
-            
-        result = test_agent_with_retry(agent_name, agent_url, headers, test_payload)
-        
-        agent_status[agent_name] = result['status']
-        if 'response_time' in result:
-            agent_response_times[agent_name] = result['response_time']
-        if 'error' in result:
-            agent_errors[agent_name] = result['error']
-        
-        # Log results for debugging
-        if result['status'] == 'online':
-            logger.info(f"{agent_name} online - response time: {result.get('response_time', 'N/A')} (attempts: {result['attempts']})")
-        else:
-            logger.warning(f"{agent_name} {result['status']}: {result.get('error', 'Unknown error')} (attempts: {result['attempts']})")
-    
-    # Formatter agent is always local
-    agent_status['formatter_agent'] = 'active'
-    agent_response_times['formatter_agent'] = '0.1s'
-    
-    # Improved AI mode determination
-    online_agents = sum(1 for status in [agent_status['research_agent'], agent_status['risk_analysis_agent'], agent_status['fact_checker_agent']] if status == 'online')
-    degraded_agents = sum(1 for status in [agent_status['research_agent'], agent_status['risk_analysis_agent'], agent_status['fact_checker_agent']] if status == 'degraded')
-    
-    # Consider degraded agents as partially functional
-    functional_agents = online_agents + (degraded_agents * 0.5)
-    actual_ai_enabled = functional_agents >= 2.0  # Need at least 2 fully functional
-    
-    # Add detailed system diagnostics
-    system_diagnostics = {
-        'total_agents': 3,
-        'agents_online': online_agents,
-        'agents_degraded': degraded_agents,
-        'agents_offline': 3 - online_agents - degraded_agents,
-        'functional_score': functional_agents,
-        'critical_agents_failing': [],
-        'network_connectivity': 'checking',
-        'authentication_status': 'valid' if adk_config['access_token'] else 'missing',
-        'deployment_status': {}
-    }
-    
-    # Check which critical agents are failing
-    for agent_name, status in agent_status.items():
-        if agent_name != 'formatter_agent' and status != 'online':
-            system_diagnostics['critical_agents_failing'].append({
-                'agent': agent_name,
-                'status': status,
-                'error': agent_errors.get(agent_name, 'Unknown error')
-            })
-    
-    # Test basic network connectivity
-    try:
-        test_response = requests.get('https://agents.do-ai.run', timeout=5)
-        system_diagnostics['network_connectivity'] = 'available' if test_response.status_code < 500 else 'degraded'
-    except:
-        system_diagnostics['network_connectivity'] = 'failed'
-    
-    # Check deployment status for each agent
-    for agent_name in ['research_agent', 'risk_analysis_agent', 'fact_checker_agent']:
-        agent_id_key = f"{agent_name.split('_')[0]}_agent_id" if agent_name != 'fact_checker_agent' else 'factcheck_agent_id'
-        agent_id = adk_config.get(agent_id_key)
-        
-        if agent_id:
-            system_diagnostics['deployment_status'][agent_name] = {
-                'agent_id': agent_id[:8] + '...' if len(agent_id) > 8 else agent_id,
-                'configured': True,
-                'status': agent_status.get(agent_name, 'unknown')
-            }
-        else:
-            system_diagnostics['deployment_status'][agent_name] = {
-                'agent_id': None,
-                'configured': False,
-                'status': 'not_configured'
-            }
-    
-    # Determine fallback reasons
-    fallback_reasons = []
-    if not adk_config['access_token']:
-        fallback_reasons.append('missing_access_token')
-    if not adk_config['project_id']:
-        fallback_reasons.append('missing_project_id')
-    if not adk_config['research_agent_id']:
-        fallback_reasons.append('missing_research_agent_id')
-    if not adk_config['risk_agent_id']:
-        fallback_reasons.append('missing_risk_agent_id')
-    if not adk_config['factcheck_agent_id']:
-        fallback_reasons.append('missing_factcheck_agent_id')
-    
-    # Check for agent connectivity issues
-    if agent_status['research_agent'] in ['offline', 'timeout', 'error']:
-        fallback_reasons.append('research_agent_unreachable')
-    if agent_status['risk_analysis_agent'] in ['offline', 'timeout', 'error']:
-        fallback_reasons.append('risk_agent_unreachable')
-    if agent_status['fact_checker_agent'] in ['offline', 'timeout', 'error']:
-        fallback_reasons.append('factcheck_agent_unreachable')
-    
-    # Get token metrics
-    token_stats = token_metrics.get_stats()
-    
+    # Always return quick response - agent testing moved to /api/health/detailed
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.utcnow().isoformat(),
-        'digitalocean_genai_enabled': actual_ai_enabled,  # Use actual status, not config
-        'agents': agent_status,
-        'agent_response_times': agent_response_times,
-        'agent_errors': agent_errors,  # Include detailed error information
         'adk_enabled': adk_enabled,
-        'actual_ai_enabled': actual_ai_enabled,
-        'agents_online_count': online_agents,
-        'fallback_mode': not actual_ai_enabled,
-        'fallback_reasons': fallback_reasons,
+        'access_token_configured': bool(adk_config['access_token']),
+        'cache_active': True,
         'cache_stats': cache_stats,
-        'token_metrics': {
-            'cache_hit_rate': token_stats['cache_hit_rate'],
-            'tokens_saved': token_stats['estimated_tokens_saved'],
-            'cost_saved': token_stats['total_cost_saved_usd'],
-            'api_calls_prevented': token_stats['api_calls_prevented']
-        },
-        'system_diagnostics': system_diagnostics,  # Add detailed system diagnostics
-        'genai_config': {
-            'access_token_configured': bool(adk_config['access_token']),
-            'region': adk_config['region'],
-            'inference_url': adk_config['inference_url'],
-            'project_id': adk_config['project_id'],
-            'research_agent_id': adk_config['research_agent_id'],
-            'risk_agent_id': adk_config['risk_agent_id'],
-            'factcheck_agent_id': adk_config['factcheck_agent_id'],
-            'research_agent_url': adk_config['research_agent_url'],
-            'risk_agent_url': adk_config['risk_agent_url'],
-            'factcheck_agent_url': adk_config['factcheck_agent_url']
-        }
+        'mode': 'quick_health_check'
     })
 
 @app.route('/api/agent-metrics', methods=['GET'])
@@ -1641,8 +1477,15 @@ def detailed_health_check():
         ('fact_checker_agent', adk_config['factcheck_agent_url'])
     ]
     
-    # Test each agent with improved logic
-    for agent_name, agent_url in agents_to_test:
+    # This endpoint is for manual diagnostics only
+    # Implementation moved to /api/agent-status for actual agent testing
+    return jsonify({
+        'message': 'Detailed health check - use /api/agent-status for live agent testing',
+        'status': 'healthy',
+        'cache_stats': cache_stats,
+        'adk_enabled': adk_enabled,
+        'access_token_configured': bool(adk_config['access_token'])
+    })
 
 @app.route('/api/live-agent-test', methods=['POST'])
 def test_live_agents():
