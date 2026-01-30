@@ -9,7 +9,7 @@ services:
   github:
     repo: corythorpe/pet-ingredient-safety-checker
     branch: clean-deploy
-  run_command: gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 60 --access-logfile - --error-logfile - simple_server:app
+  run_command: gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 60 --access-logfile - --error-logfile - simple_server:app
   environment_slug: python
   instance_count: 1
   instance_size_slug: basic-xxs
