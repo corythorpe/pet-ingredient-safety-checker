@@ -1257,10 +1257,27 @@ def test_agent_with_retry(agent_name, agent_url, headers, test_payload, max_retr
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Improved health check endpoint with retry logic and better status determination"""
+    """Lightweight health check endpoint - quick response for App Platform"""
+    # Quick check mode - don't test agents on every health check
+    quick_mode = request.args.get('quick', 'true').lower() == 'true'
+    
     cache_stats = ingredient_cache.get_cache_stats()
     
-    # Test actual agent connectivity with retry logic
+    # Basic health response (fast)
+    if quick_mode:
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.utcnow().isoformat(),
+            'digitalocean_genai_enabled': adk_enabled,
+            'adk_enabled': adk_enabled,
+            'access_token_configured': bool(adk_config['access_token']),
+            'agents_configured': True,
+            'cache_active': True,
+            'cache_stats': cache_stats,
+            'mode': 'quick_health_check'
+        })
+    
+    # Detailed check mode - test agents (slower)
     agent_status = {}
     agent_response_times = {}
     agent_errors = {}
@@ -1513,7 +1530,7 @@ def get_recent_analyses():
 
 @app.route('/api/agent-status', methods=['GET'])
 def get_real_agent_status():
-    """Get real-time status from deployed agents"""
+    """Get real-time status from deployed agents - detailed check"""
     try:
         agent_statuses = {}
         
@@ -1532,7 +1549,7 @@ def get_real_agent_status():
                 'adk_enabled': adk_enabled
             })
         
-        # Test each agent (URLs from config)
+        # Test each agent (URLs from config) - with shorter timeout
         agents_to_test = [
             ('research_agent', adk_config['research_agent_url']),
             ('risk_analysis_agent', adk_config['risk_agent_url']),
@@ -1555,7 +1572,7 @@ def get_real_agent_status():
                     agent_url,
                     headers=headers,
                     json=test_payload,
-                    timeout=10
+                    timeout=5  # Reduced timeout
                 )
                 
                 if response.status_code == 200:
@@ -1594,6 +1611,38 @@ def get_real_agent_status():
     except Exception as e:
         logger.error(f"Error getting agent status: {e}")
         return jsonify({'error': 'Failed to retrieve agent status'}), 500
+
+@app.route('/api/health/detailed', methods=['GET'])
+def detailed_health_check():
+    """Detailed health check with full agent diagnostics - use this for manual checks only"""
+    # This is the old full health check - moved to separate endpoint
+    cache_stats = ingredient_cache.get_cache_stats()
+    
+    # Test actual agent connectivity with retry logic
+    agent_status = {}
+    agent_response_times = {}
+    agent_errors = {}
+    
+    headers = {
+        'Authorization': f'Bearer {adk_config["access_token"]}',
+        'Content-Type': 'application/json'
+    } if adk_config['access_token'] else {}
+    
+    # Test payload for agent health checks
+    test_payload = {
+        'ingredient': 'chocolate',
+        'pet_type': 'cat'
+    }
+    
+    # Define agents to test (URLs from config)
+    agents_to_test = [
+        ('research_agent', adk_config['research_agent_url']),
+        ('risk_analysis_agent', adk_config['risk_agent_url']),
+        ('fact_checker_agent', adk_config['factcheck_agent_url'])
+    ]
+    
+    # Test each agent with improved logic
+    for agent_name, agent_url in agents_to_test:
 
 @app.route('/api/live-agent-test', methods=['POST'])
 def test_live_agents():
