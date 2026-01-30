@@ -796,38 +796,41 @@ class RealResearchAgent:
     """Agent that conducts real web research on ingredients"""
     
     async def research(self, ingredient, pet_type):
-        """Conduct web research on ingredient safety with REAL web search"""
+        """Conduct ingredient safety research - trying web search first, then AI agent"""
         search_results = []
         
-        # STEP 1: Perform real web search (fast, free, current data)
-        logger.info(f"🔍 Performing web search for {ingredient}")
-        web_results = search_web_for_ingredient(ingredient, pet_type, max_results=5)
-        
-        if web_results:
-            # Build formatted search results from web
-            for web_result in web_results:
-                search_results.append({
-                    'query': f"{ingredient} {pet_type} safety",
-                    'content': f"SOURCE: {web_result['title']}\nURL: {web_result['url']}\nCONTENT: {web_result['snippet']}",
-                    'source': f"Web Search: {web_result['url']}",
-                    'url': web_result['url'],
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'agent_type': 'web_search'
-                })
+        # STEP 1: Try web search (fast when it works)
+        logger.info(f"🔍 Attempting web search for {ingredient}")
+        try:
+            web_results = search_web_for_ingredient(ingredient, pet_type, max_results=5)
             
-            logger.info(f"✅ Web search found {len(web_results)} results for {ingredient}")
-            
-            # Return web search results directly - no need for ADK agent call
-            return {
-                'ingredient': ingredient,
-                'pet_type': pet_type,
-                'search_results': search_results,
-                'research_timestamp': datetime.utcnow().isoformat(),
-                'research_source': 'web_search'
-            }
+            if web_results and len(web_results) > 0:
+                # Build formatted search results from web
+                for web_result in web_results:
+                    search_results.append({
+                        'query': f"{ingredient} {pet_type} safety",
+                        'content': f"SOURCE: {web_result['title']}\nURL: {web_result['url']}\nCONTENT: {web_result['snippet']}",
+                        'source': f"Web Search: {web_result['url']}",
+                        'url': web_result['url'],
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'agent_type': 'web_search'
+                    })
+                
+                logger.info(f"✅ Web search found {len(web_results)} results for {ingredient}")
+                
+                # Return web search results
+                return {
+                    'ingredient': ingredient,
+                    'pet_type': pet_type,
+                    'search_results': search_results,
+                    'research_timestamp': datetime.utcnow().isoformat(),
+                    'research_source': 'web_search'
+                }
+        except Exception as e:
+            logger.warning(f"Web search failed: {e}")
         
-        # STEP 2: Fallback to ADK agent if web search fails
-        logger.info(f"⚠️ Web search returned no results, trying ADK agent for {ingredient}")
+        # STEP 2: Use ADK agent (trained LLM knowledge)
+        logger.info(f"🤖 Using ADK agent for {ingredient}")
         try:
             headers = {
                 'Authorization': f'Bearer {adk_config["access_token"]}',
@@ -851,26 +854,27 @@ class RealResearchAgent:
                 result = response.json()
                 content = result.get('research_results', str(result))
                 
+                # Mark as LLM knowledge-based
                 return {
                     'ingredient': ingredient,
                     'pet_type': pet_type,
                     'search_results': [{
                         'query': f"{ingredient} safety for {pet_type}s",
                         'content': content,
-                        'source': 'ADK Research Agent (LLM Knowledge)',
+                        'source': 'AI Knowledge Base (not live web search)',
                         'timestamp': datetime.utcnow().isoformat(),
                         'agent_type': 'adk_research_agent'
                     }],
                     'research_timestamp': datetime.utcnow().isoformat(),
-                    'research_source': 'adk_agent'
+                    'research_source': 'adk_agent_llm_knowledge'
                 }
             else:
                 logger.error(f"ADK Research Agent error: {response.status_code}")
                 raise Exception(f"Research Agent error: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"Research agent failed: {e}")
-            raise Exception(f"Research Agent unavailable: {e}")
+            logger.error(f"All research methods failed: {e}")
+            raise Exception(f"Research unavailable: {e}")
 
 class RealRiskAnalysisAgent:
     """Agent that uses AI to analyze risk levels"""

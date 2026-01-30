@@ -36,78 +36,34 @@ async def fact_check_and_validate(state: FactCheckState) -> FactCheckState:
     research_data = state["research_data"]
     risk_level = state["risk_level"]
     
-    fact_check_prompt = f"""FACT-CHECK AND SOURCE VALIDATION WITH CONFIDENCE LEVELS
+    fact_check_prompt = f"""VETERINARY SAFETY VALIDATION: {ingredient} for {pet_type}s
 
-Ingredient: {ingredient}
-Pet Type: {pet_type}
 Proposed Risk Level: {risk_level}
 
-Research Data (including web search results):
+Research Data Available:
 {research_data}
 
-IMPORTANT: If the research data above contains URLs from web searches (ASPCA, Pet Poison Helpline, VCA, etc.), 
-these are REAL sources that were found via live web search. Accept and use them.
+YOUR TASK: Extract useful safety information and validate the risk assessment.
 
-VALIDATION TIERS (use best available data):
-
-TIER 1 - HIGH CONFIDENCE (preferred):
-- At least 1 real URL from authoritative sources (ASPCA, Pet Poison Helpline, VCA, AKC, PetMD)
-- Sources provide detailed toxicity mechanisms OR safety confirmations
-- Web search results with actual content snippets
-
-TIER 2 - MEDIUM CONFIDENCE (acceptable):
-- General veterinary information or category knowledge
-- Contains useful safety information even if not perfectly specific
-- Risk assessment supported by veterinary knowledge
-
-TIER 3 - LOW CONFIDENCE (minimal):
-- General veterinary knowledge about ingredient category
-- Informed estimates based on similar ingredients
-- Conservative safety assessment
-
-CRITICAL: If you see URLs like aspca.org, petpoisonhelpline.com, vcahospitals.com in the research data,
-these were found via real-time web search. Use them and set confidence to at least MEDIUM.
+RESPONSE GUIDELINES:
+1. If research data mentions toxicity, mechanisms, or symptoms - USE IT (set confidence: high or medium)
+2. If research mentions the ingredient category or similar ingredients - USE IT (set confidence: medium)
+3. For well-known ingredients (chocolate, grapes, onions, xylitol, etc.) - you should have knowledge (set confidence: medium-high)
+4. Only set validation_failed: true if literally ZERO information exists
 
 RESPONSE FORMAT (JSON only):
-For HIGH CONFIDENCE (found web sources):
 {{
-    "confidence_level": "high",
+    "confidence_level": "high|medium|low",
     "validation_failed": false,
     "validated_risk": "{risk_level}",
-    "mechanism": "[specific mechanism from sources]",
-    "symptoms": "[specific symptoms]",
-    "specific_sources": ["array of URLs from research data"],
-    "source_quality": "high - verified web search results",
+    "mechanism": "[toxicity mechanism or safety note]",
+    "symptoms": "[symptoms if toxic, or 'Generally safe in moderation' if safe]",
+    "specific_sources": ["list any URLs found, or generic ASPCA/Pet Poison Helpline"],
+    "source_quality": "high|medium|low",
     "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
 }}
 
-For MEDIUM CONFIDENCE:
-{{
-    "confidence_level": "medium",
-    "validation_failed": false,
-    "validated_risk": "{risk_level}",
-    "mechanism": "[mechanism based on available data]",
-    "symptoms": "[general symptoms if known]",
-    "specific_sources": ["available sources"],
-    "source_quality": "medium - general veterinary information",
-    "confidence_note": "Based on general veterinary knowledge",
-    "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
-}}
-
-For LOW CONFIDENCE:
-{{
-    "confidence_level": "low",
-    "validation_failed": false,
-    "validated_risk": "medium",
-    "mechanism": "Limited data - recommend veterinary consultation",
-    "symptoms": "Monitor for any unusual behavior, vomiting, diarrhea, or lethargy",
-    "specific_sources": ["ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control"],
-    "source_quality": "low - insufficient specific data",
-    "confidence_note": "Very limited data available - consult veterinarian before feeding",
-    "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
-}}
-
-Only return validation_failed: true if absolutely NO useful information exists AND no web sources were found."""
+ACCEPT THE RESEARCH DATA - don't reject it unless there's truly nothing useful."""
 
     response = await llm.ainvoke(fact_check_prompt)
     fact_check_response = response.content
