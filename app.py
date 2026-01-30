@@ -740,37 +740,9 @@ class RealResearchAgent:
     """Agent that conducts real web research on ingredients"""
     
     async def research(self, ingredient, pet_type):
-        """Conduct web research on ingredient safety"""
-        search_queries = [
-            f"{ingredient} toxic {pet_type} safety",
-            f"{ingredient} poisonous {pet_type}s",
-            f"{ingredient} {pet_type} food safe ASPCA",
-            f"{ingredient} pet poison helpline {pet_type}"
-        ]
-        
-        research_results = []
-        
-        # Simulate web research with targeted searches
-        for query in search_queries[:2]:  # Limit to 2 searches to avoid rate limits
-            try:
-                search_result = await self._search_web(query)
-                if search_result:
-                    research_results.append(search_result)
-            except Exception as e:
-                logger.warning(f"Search failed for {query}: {e}")
-        
-        return {
-            'ingredient': ingredient,
-            'pet_type': pet_type,
-            'search_results': research_results,
-            'research_timestamp': datetime.utcnow().isoformat()
-        }
-    
-    async def _search_web(self, query):
-        """Use ADK Research Agent for REAL web research"""
-        
+        """Conduct web research on ingredient safety - OPTIMIZED"""
         try:
-            # Call ADK Research Agent directly using Agent Workspace URL
+            # Call ADK Research Agent ONCE (was calling 2x before)
             headers = {
                 'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
@@ -778,37 +750,41 @@ class RealResearchAgent:
             
             agent_url = adk_config["research_agent_url"]
             payload = {
-                'ingredient': query.split()[0],  # Extract ingredient from query
-                'pet_type': 'dog' if 'dog' in query else 'cat'
+                'ingredient': ingredient,
+                'pet_type': pet_type
             }
             
+            # Reduced timeout from 45s to 15s to fail faster
             response = requests.post(
                 agent_url,
                 headers=headers,
                 json=payload,
-                timeout=45
+                timeout=15
             )
             
             if response.status_code == 200:
                 result = response.json()
-                # Handle the ADK agent response format
                 content = result.get('research_results', str(result))
                 
                 return {
-                    'query': query,
-                    'content': content,
-                    'source': 'ADK Research Agent - Comprehensive Research',
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'agent_type': 'adk_research_agent',
-                    'research_type': 'comprehensive_veterinary_research'
+                    'ingredient': ingredient,
+                    'pet_type': pet_type,
+                    'search_results': [{
+                        'query': f"{ingredient} safety for {pet_type}s",
+                        'content': content,
+                        'source': 'ADK Research Agent',
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'agent_type': 'adk_research_agent'
+                    }],
+                    'research_timestamp': datetime.utcnow().isoformat()
                 }
             else:
-                logger.error(f"ADK Agent API error: {response.status_code} - {response.text}")
-                raise Exception(f"Research Agent API error: {response.status_code}")
+                logger.error(f"ADK Research Agent error: {response.status_code}")
+                raise Exception(f"Research Agent error: {response.status_code}")
                 
         except Exception as e:
-            logger.error(f"ADK research agent failed: {e}")
-            raise Exception(f"Research Agent temporarily unavailable: {e}")
+            logger.error(f"Research agent failed: {e}")
+            raise Exception(f"Research Agent unavailable: {e}")
 
 class RealRiskAnalysisAgent:
     """Agent that uses AI to analyze risk levels"""
@@ -988,7 +964,7 @@ class AIMultiAgentSystem:
         self.formatter_agent = RealFormatterAgent()
     
     async def process_ingredients(self, ingredients, pet_type, category):
-        """Process ingredients through the AI-powered pipeline with robust fallback"""
+        """Process ingredients through the AI-powered pipeline with parallel processing"""
         logger.info(f"🤖 AI-Powered Multi-Agent System: Processing {len(ingredients)} ingredients for {pet_type}")
         
         results = {'high': [], 'medium': [], 'low': [], 'no': [], 'error': []}
@@ -996,96 +972,122 @@ class AIMultiAgentSystem:
         # Clean up expired cache entries at the start
         ingredient_cache.cleanup_expired()
         
+        # Separate cached and non-cached ingredients
+        cached_ingredients = []
+        uncached_ingredients = []
+        
         for ingredient in ingredients:
-            # Check cache first
             cached_result = ingredient_cache.get(ingredient, pet_type)
             if cached_result:
                 token_metrics.record_cache_hit()
                 cached_result['cached'] = True
-                results[cached_result['risk_level']].append(cached_result)
-                logger.info(f"📋 Cache hit for {ingredient} - tokens saved: {token_metrics.tokens_per_full_analysis}")
-                continue
+                cached_ingredients.append((ingredient, cached_result))
+                logger.info(f"📋 Cache hit for {ingredient}")
+            else:
+                uncached_ingredients.append(ingredient)
+        
+        # Add cached results immediately
+        for ingredient, cached_result in cached_ingredients:
+            results[cached_result['risk_level']].append(cached_result)
+        
+        # Process uncached ingredients in parallel (up to 3 at a time to avoid overwhelming the agents)
+        if uncached_ingredients:
+            import asyncio
             
-            # Try AI agents first, but immediately fall back to knowledge base on any error
-            try:
-                token_metrics.record_cache_miss()
-                logger.info(f"🔬 Research Agent: Researching {ingredient} for {pet_type}")
-                research_data = await self.research_agent.research(ingredient, pet_type)
-                
-                logger.info(f"⚖️ Risk Analysis Agent: Analyzing {ingredient}")
-                risk_level = await self.risk_analysis_agent.analyze(research_data, pet_type)
-                
-                logger.info(f"✅ Fact Checker Agent: Validating {ingredient}")
-                validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
-                
-                # Check if validation failed or risk is error
-                fact_check_data = validated_data.get('fact_check', {})
-                final_risk = validated_data.get('validated_risk', 'error')
-                validation_failed = fact_check_data.get('validation_failed', False)
-                confidence_level = fact_check_data.get('confidence_level', 'unknown')
-                
-                if validation_failed or final_risk == 'error':
-                    # Handle validation failure - return error result
-                    emergency_sources = [
-                        "ASPCA Animal Poison Control: (888) 426-4435",
-                        "Pet Poison Helpline: (855) 764-7661",
-                        "Consult your veterinarian immediately"
-                    ]
-                    formatted_result = {
-                        'name': ingredient,
-                        'risk_level': 'error',
-                        'justification': f"Unable to provide reliable safety information for '{ingredient}'. {fact_check_data.get('failure_reason', 'Insufficient specific sources found.')} {fact_check_data.get('recommendation', 'Consult your veterinarian immediately for professional advice.')}",
-                        'sources': emergency_sources,  # Array format
-                        'cached': False,
-                        'ai_powered': True,
-                        'knowledge_based': False,
-                        'error': True,
-                        'validation_failed': True
-                    }
-                else:
-                    # Format successful result
-                    # Ensure sources are in array format
-                    sources = fact_check_data.get('specific_sources', fact_check_data.get('authoritative_sources', []))
-                    if not isinstance(sources, list):
-                        sources = [sources] if sources else ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control']
+            async def process_single_ingredient(ingredient):
+                """Process a single ingredient through the AI pipeline"""
+                try:
+                    token_metrics.record_cache_miss()
+                    logger.info(f"🔬 Processing {ingredient}")
                     
-                    # Build justification with confidence note if applicable
-                    justification = f"{ingredient.capitalize()} {self._get_risk_description(final_risk)} for {pet_type}s. {fact_check_data.get('mechanism', '')} {fact_check_data.get('symptoms', '')}"
+                    # Research
+                    research_data = await self.research_agent.research(ingredient, pet_type)
                     
-                    # Add confidence note for medium/low confidence results
-                    if confidence_level in ['medium', 'low'] and 'confidence_note' in fact_check_data:
-                        justification += f" Note: {fact_check_data['confidence_note']}"
+                    # Risk analysis
+                    risk_level = await self.risk_analysis_agent.analyze(research_data, pet_type)
                     
-                    formatted_result = {
-                        'name': ingredient,
-                        'risk_level': final_risk,
-                        'justification': justification,
-                        'sources': sources,  # Always array format
-                        'cached': False,
-                        'ai_powered': True,
-                        'knowledge_based': False,
-                        'confidence_level': confidence_level,  # Add confidence level
-                        'limited_data': confidence_level in ['medium', 'low']  # Flag for UI
-                    }
+                    # Fact checking
+                    validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
+                    
+                    # Format results
+                    fact_check_data = validated_data.get('fact_check', {})
+                    final_risk = validated_data.get('validated_risk', 'error')
+                    validation_failed = fact_check_data.get('validation_failed', False)
+                    confidence_level = fact_check_data.get('confidence_level', 'unknown')
+                    
+                    if validation_failed or final_risk == 'error':
+                        emergency_sources = [
+                            "ASPCA Animal Poison Control: (888) 426-4435",
+                            "Pet Poison Helpline: (855) 764-7661",
+                            "Consult your veterinarian immediately"
+                        ]
+                        formatted_result = {
+                            'name': ingredient,
+                            'risk_level': 'error',
+                            'justification': f"Unable to provide reliable safety information for '{ingredient}'. {fact_check_data.get('failure_reason', 'Insufficient specific sources found.')} {fact_check_data.get('recommendation', 'Consult your veterinarian immediately for professional advice.')}",
+                            'sources': emergency_sources,
+                            'cached': False,
+                            'ai_powered': True,
+                            'knowledge_based': False,
+                            'error': True,
+                            'validation_failed': True
+                        }
+                    else:
+                        sources = fact_check_data.get('specific_sources', fact_check_data.get('authoritative_sources', []))
+                        if not isinstance(sources, list):
+                            sources = [sources] if sources else ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control']
+                        
+                        justification = f"{ingredient.capitalize()} {self._get_risk_description(final_risk)} for {pet_type}s. {fact_check_data.get('mechanism', '')} {fact_check_data.get('symptoms', '')}"
+                        
+                        if confidence_level in ['medium', 'low'] and 'confidence_note' in fact_check_data:
+                            justification += f" Note: {fact_check_data['confidence_note']}"
+                        
+                        formatted_result = {
+                            'name': ingredient,
+                            'risk_level': final_risk,
+                            'justification': justification,
+                            'sources': sources,
+                            'cached': False,
+                            'ai_powered': True,
+                            'knowledge_based': False,
+                            'confidence_level': confidence_level,
+                            'limited_data': confidence_level in ['medium', 'low']
+                        }
+                    
+                    # Cache and return
+                    ingredient_cache.set(ingredient, pet_type, formatted_result)
+                    return formatted_result
+                    
+                except Exception as e:
+                    logger.warning(f"AI agents failed for {ingredient}: {e}")
+                    # Fallback to knowledge base
+                    analysis_result = self.knowledge_agent.analyze_ingredient(ingredient, pet_type)
+                    fallback_result = self.formatter_agent.format_from_analysis(analysis_result)
+                    fallback_result['ai_powered'] = False
+                    fallback_result['knowledge_based'] = True
+                    fallback_result['cached'] = False
+                    ingredient_cache.set(ingredient, pet_type, fallback_result)
+                    return fallback_result
+            
+            # Process up to 3 ingredients in parallel
+            batch_size = 3
+            for i in range(0, len(uncached_ingredients), batch_size):
+                batch = uncached_ingredients[i:i+batch_size]
+                logger.info(f"🔄 Processing batch of {len(batch)} ingredients in parallel")
                 
-                # Cache the result for future use
-                ingredient_cache.set(ingredient, pet_type, formatted_result)
-                results[formatted_result['risk_level']].append(formatted_result)
+                # Process batch concurrently
+                batch_results = await asyncio.gather(
+                    *[process_single_ingredient(ing) for ing in batch],
+                    return_exceptions=True
+                )
                 
-            except Exception as e:
-                logger.warning(f"AI agents failed for {ingredient}: {e}")
-                logger.info(f"Using knowledge-based fallback for {ingredient}")
-                
-                # Immediate fallback to knowledge-based system
-                analysis_result = self.knowledge_agent.analyze_ingredient(ingredient, pet_type)
-                fallback_result = self.formatter_agent.format_from_analysis(analysis_result)
-                fallback_result['ai_powered'] = False
-                fallback_result['knowledge_based'] = True
-                fallback_result['cached'] = False
-                
-                # Cache the fallback result
-                ingredient_cache.set(ingredient, pet_type, fallback_result)
-                results[fallback_result['risk_level']].append(fallback_result)
+                # Add results to output
+                for result in batch_results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Batch processing error: {result}")
+                        continue
+                    if result:
+                        results[result['risk_level']].append(result)
         
         return results
     
