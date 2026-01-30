@@ -1096,36 +1096,15 @@ class AIMultiAgentSystem:
                     # Risk analysis
                     risk_level = await self.risk_analysis_agent.analyze(research_data, pet_type)
                     
-                    # Simple local validation (bypass overly strict ADK fact-checker)
-                    logger.info(f"✅ Validating {ingredient} locally")
+                    # Fact checking with ADK agent
+                    logger.info(f"✅ Fact Checker Agent: Validating {ingredient}")
+                    validated_data = await self.fact_checker_agent.validate(research_data, risk_level, pet_type)
                     
-                    # Determine confidence based on research source
-                    research_source = research_data.get('research_source', 'unknown')
-                    if research_source == 'web_search':
-                        confidence_level = 'high'
-                        source_note = 'Based on web search results'
-                    elif research_source in ['adk_agent_llm_knowledge', 'adk_agent']:
-                        confidence_level = 'medium'
-                        source_note = 'Based on AI veterinary knowledge'
-                    else:
-                        confidence_level = 'medium'
-                        source_note = 'Based on available data'
-                    
-                    # Accept the risk level from risk analysis
-                    final_risk = risk_level if risk_level in ['high', 'medium', 'low', 'no'] else 'medium'
-                    validation_failed = False
-                    
-                    # Create simple fact_check_data for formatting
-                    fact_check_data = {
-                        'confidence_level': confidence_level,
-                        'mechanism': f"Safety assessment based on veterinary data. {source_note}.",
-                        'symptoms': 'Monitor for any adverse reactions. Contact veterinarian if concerns arise.',
-                        'specific_sources': [
-                            'ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control',
-                            'Pet Poison Helpline: https://www.petpoisonhelpline.com'
-                        ],
-                        'confidence_note': source_note if confidence_level != 'high' else None
-                    }
+                    # Format results
+                    fact_check_data = validated_data.get('fact_check', {})
+                    final_risk = validated_data.get('validated_risk', risk_level)
+                    validation_failed = fact_check_data.get('validation_failed', False)
+                    confidence_level = fact_check_data.get('confidence_level', 'medium')
                     
                     if validation_failed or final_risk == 'error':
                         emergency_sources = [
