@@ -1367,6 +1367,7 @@ def health_check():
         'timestamp': datetime.utcnow().isoformat(),
         'adk_enabled': adk_enabled,
         'access_token_configured': bool(adk_config['access_token']),
+        'web_search_available': WEB_SEARCH_AVAILABLE,
         'cache_active': True,
         'cache_stats': cache_stats,
         'mode': 'quick_health_check'
