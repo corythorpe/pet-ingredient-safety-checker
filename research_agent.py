@@ -1,9 +1,18 @@
 from gradient_adk import entrypoint
 from langgraph.graph import StateGraph
 from langchain_openai import ChatOpenAI
-from typing import TypedDict
+from typing import TypedDict, List
 from pathlib import Path
 import os
+import json
+
+# Web search capabilities
+try:
+    from duckduckgo_search import DDGS
+    SEARCH_AVAILABLE = True
+except ImportError:
+    SEARCH_AVAILABLE = False
+    print("Warning: duckduckgo-search not installed. Web search disabled.")
 
 # Read API key from file
 if Path("api_key.txt").exists():
@@ -25,50 +34,119 @@ class ResearchState(TypedDict):
     ingredient: str
     pet_type: str
     research_results: str
+    search_results: List[dict]
+
+def search_web_for_ingredient(ingredient: str, pet_type: str, max_results: int = 5) -> List[dict]:
+    """Perform actual web search for ingredient safety information"""
+    if not SEARCH_AVAILABLE:
+        return []
+    
+    try:
+        results = []
+        ddgs = DDGS()
+        
+        # Prioritize authoritative veterinary sources
+        priority_sites = [
+            "site:aspca.org",
+            "site:petpoisonhelpline.com", 
+            "site:vcahospitals.com",
+            "site:akc.org",
+            "site:petmd.com"
+        ]
+        
+        # Search query targeting veterinary toxicology
+        queries = [
+            f"{ingredient} toxic {pet_type} {priority_sites[0]}",
+            f"{ingredient} poisonous {pet_type} {priority_sites[1]}",
+            f"{ingredient} safe {pet_type} veterinary"
+        ]
+        
+        # Perform searches
+        for query in queries[:2]:  # Limit to 2 searches for speed
+            try:
+                search_results = ddgs.text(query, max_results=3)
+                for result in search_results:
+                    results.append({
+                        'title': result.get('title', ''),
+                        'url': result.get('href', ''),
+                        'snippet': result.get('body', ''),
+                        'source': 'web_search'
+                    })
+                    if len(results) >= max_results:
+                        break
+            except Exception as e:
+                print(f"Search error for '{query}': {e}")
+                continue
+            
+            if len(results) >= max_results:
+                break
+        
+        return results[:max_results]
+        
+    except Exception as e:
+        print(f"Web search failed: {e}")
+        return []
 
 async def conduct_research(state: ResearchState) -> ResearchState:
-    """Conduct comprehensive research on ingredient safety for pets - OPTIMIZED FOR SPEED"""
+    """Conduct comprehensive research with REAL web search"""
     ingredient = state["ingredient"]
     pet_type = state["pet_type"]
     
-    # Streamlined prompt focusing on known knowledge rather than "searching"
-    research_prompt = f"""VETERINARY SAFETY ASSESSMENT: {ingredient} for {pet_type}s
+    # Perform actual web search
+    print(f"🔍 Searching web for: {ingredient} + {pet_type}")
+    search_results = search_web_for_ingredient(ingredient, pet_type, max_results=5)
+    state["search_results"] = search_results
+    
+    # Build research context from real search results
+    if search_results:
+        search_context = "\n\n".join([
+            f"SOURCE: {r['title']}\nURL: {r['url']}\nCONTENT: {r['snippet']}"
+            for r in search_results
+        ])
+        search_status = f"Found {len(search_results)} sources from web search"
+    else:
+        search_context = "No web search results found"
+        search_status = "Limited web search results - using LLM knowledge"
+    
+    research_prompt = f"""VETERINARY SAFETY RESEARCH: {ingredient} for {pet_type}s
 
-Using your knowledge of veterinary toxicology and pet safety, provide information about {ingredient}:
+WEB SEARCH RESULTS:
+{search_context}
 
-RESPONSE TIERS (choose highest applicable):
+ANALYSIS INSTRUCTIONS:
+Based on the above web search results and your veterinary knowledge, provide:
 
-TIER 1 - Known Toxic/Safe Ingredients:
-If you have clear knowledge that {ingredient} is toxic OR safe for {pet_type}s, provide:
-- RESEARCH_STATUS: SUFFICIENT_DATA
-- TOXICITY_ANALYSIS: [mechanism and severity]
-- CLINICAL_EVIDENCE: [symptoms if toxic, or safety notes if safe]
-- SPECIFIC_SOURCES: [Known authoritative URLs like ASPCA/Pet Poison Helpline specific pages]
-- CONFIDENCE: HIGH
+1. RESEARCH_STATUS: 
+   - SUFFICIENT_DATA if web results contain clear toxicity/safety info
+   - MODERATE_DATA if results are general but useful
+   - INSUFFICIENT_DATA if no clear information found
 
-TIER 2 - General Category Knowledge:
-If {ingredient} belongs to a known toxic/safe category (e.g., nightshades, grains, proteins):
-- RESEARCH_STATUS: SUFFICIENT_DATA  
-- TOXICITY_ANALYSIS: [based on category]
-- CLINICAL_EVIDENCE: [typical for this category]
-- SPECIFIC_SOURCES: [General veterinary resources]
-- CONFIDENCE: MEDIUM
+2. SPECIFIC_SOURCES: List the exact URLs from search results above
 
-TIER 3 - Insufficient Knowledge:
-If you lack clear information:
-- RESEARCH_STATUS: INSUFFICIENT_DATA
-- FAILURE_REASON: Limited veterinary data available for {ingredient} in {pet_type}s
-- RECOMMENDATION: Consult veterinarian for professional assessment
-- CONFIDENCE: LOW
+3. TOXICITY_ANALYSIS: 
+   - Synthesize information from the search results
+   - Note specific toxic compounds if mentioned
+   - Indicate severity levels if found
 
-GUIDELINES:
-✓ Prioritize speed - use your existing knowledge
-✓ Be transparent about confidence level
-✓ Provide best available information even if limited
-✓ Common ingredients (chocolate, grapes, chicken, rice) should have high confidence
-✓ Obscure ingredients should acknowledge uncertainty
+4. CLINICAL_EVIDENCE:
+   - List symptoms mentioned in search results
+   - Note dosage thresholds if available
+   - Include treatment info if found
 
-RESPOND CONCISELY - This assessment is time-sensitive."""
+5. CONFIDENCE:
+   - HIGH: Multiple authoritative sources with detailed info
+   - MEDIUM: General information from credible sources  
+   - LOW: Limited or no specific information found
+
+FORMAT YOUR RESPONSE AS:
+RESEARCH_STATUS: [status]
+CONFIDENCE: [level]
+SPECIFIC_SOURCES: [comma-separated URLs from search results]
+TOXICITY_ANALYSIS: [detailed analysis]
+CLINICAL_EVIDENCE: [symptoms and evidence]
+RECOMMENDATION: [based on findings]
+
+Search status: {search_status}"""
 
     response = await llm.ainvoke(research_prompt)
     state["research_results"] = response.content
@@ -76,7 +154,7 @@ RESPOND CONCISELY - This assessment is time-sensitive."""
 
 @entrypoint
 async def main(input: dict, context: dict):
-    """Research Agent - Conducts comprehensive ingredient safety research"""
+    """Research Agent - Conducts comprehensive ingredient safety research with REAL web search"""
     graph = StateGraph(ResearchState)
     graph.add_node("research", conduct_research)
     graph.set_entry_point("research")
@@ -84,12 +162,14 @@ async def main(input: dict, context: dict):
     
     result = await app.ainvoke({
         "ingredient": input.get("ingredient", ""),
-        "pet_type": input.get("pet_type", "cat")
+        "pet_type": input.get("pet_type", "cat"),
+        "search_results": []
     })
     
     return {
         "ingredient": result["ingredient"],
         "pet_type": result["pet_type"],
         "research_results": result["research_results"],
+        "search_results": result["search_results"],
         "agent_type": "research_agent"
     }
