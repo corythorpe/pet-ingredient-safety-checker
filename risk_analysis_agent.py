@@ -46,12 +46,10 @@ async def analyze_risk(state: RiskAnalysisState) -> RiskAnalysisState:
         state["risk_analysis"] = "INSUFFICIENT_RESEARCH: Research data too minimal for reliable safety determination. Cannot assess risk without adequate specific information."
         return state
     
-    # Enhanced vague content detection
+    # Enhanced vague content detection - only reject truly problematic patterns
     vague_indicators = [
-        "general", "may be", "could be", "possibly", "search results", "homepage",
-        "search?query=", "/search/", "general information", "broad category",
-        "commonly known", "typically", "usually", "often", "sometimes",
-        "veterinary sources" # without specific citation
+        "search results", "homepage only", "search?query=", "/search/",
+        "broad category", "no specific information", "unable to determine"
     ]
     
     # Check for generic sources that indicate insufficient research

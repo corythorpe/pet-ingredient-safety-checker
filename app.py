@@ -1582,7 +1582,7 @@ def get_real_agent_status():
                     agent_url,
                     headers=headers,
                     json=test_payload,
-                    timeout=5  # Reduced timeout
+                    timeout=15  # Increased timeout to accommodate research agent web searches
                 )
                 
                 if response.status_code == 200:
