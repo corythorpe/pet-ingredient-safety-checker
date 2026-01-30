@@ -20,6 +20,15 @@ from pathlib import Path
 import threading
 import time
 
+# Web search capabilities
+try:
+    from duckduckgo_search import DDGS
+    WEB_SEARCH_AVAILABLE = True
+except ImportError:
+    WEB_SEARCH_AVAILABLE = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning("duckduckgo-search not available - web search disabled")
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -736,13 +745,90 @@ class RealMultiAgentSystem:
         
         return results
 
+def search_web_for_ingredient(ingredient: str, pet_type: str, max_results: int = 5):
+    """Perform actual web search for ingredient safety - integrated into main app"""
+    if not WEB_SEARCH_AVAILABLE:
+        logger.warning("Web search not available - duckduckgo-search not installed")
+        return []
+    
+    try:
+        results = []
+        ddgs = DDGS()
+        
+        # Prioritize authoritative veterinary sources
+        priority_sites = ["site:aspca.org", "site:petpoisonhelpline.com", "site:vcahospitals.com"]
+        
+        # Search queries targeting veterinary toxicology
+        queries = [
+            f"{ingredient} toxic {pet_type} {priority_sites[0]}",
+            f"{ingredient} safe {pet_type} veterinary"
+        ]
+        
+        # Perform searches
+        for query in queries:
+            try:
+                logger.info(f"🔍 Web searching: {query}")
+                search_results = ddgs.text(query, max_results=3)
+                for result in search_results:
+                    results.append({
+                        'title': result.get('title', ''),
+                        'url': result.get('href', ''),
+                        'snippet': result.get('body', ''),
+                        'source': 'web_search'
+                    })
+                    if len(results) >= max_results:
+                        break
+            except Exception as e:
+                logger.warning(f"Search error for '{query}': {e}")
+                continue
+            
+            if len(results) >= max_results:
+                break
+        
+        logger.info(f"✅ Found {len(results)} web search results for {ingredient}")
+        return results[:max_results]
+        
+    except Exception as e:
+        logger.error(f"Web search failed: {e}")
+        return []
+
 class RealResearchAgent:
     """Agent that conducts real web research on ingredients"""
     
     async def research(self, ingredient, pet_type):
-        """Conduct web research on ingredient safety - OPTIMIZED"""
+        """Conduct web research on ingredient safety with REAL web search"""
+        search_results = []
+        
+        # STEP 1: Perform real web search (fast, free, current data)
+        logger.info(f"🔍 Performing web search for {ingredient}")
+        web_results = search_web_for_ingredient(ingredient, pet_type, max_results=5)
+        
+        if web_results:
+            # Build formatted search results from web
+            for web_result in web_results:
+                search_results.append({
+                    'query': f"{ingredient} {pet_type} safety",
+                    'content': f"SOURCE: {web_result['title']}\nURL: {web_result['url']}\nCONTENT: {web_result['snippet']}",
+                    'source': f"Web Search: {web_result['url']}",
+                    'url': web_result['url'],
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'agent_type': 'web_search'
+                })
+            
+            logger.info(f"✅ Web search found {len(web_results)} results for {ingredient}")
+            
+            # Return web search results directly - no need for ADK agent call
+            return {
+                'ingredient': ingredient,
+                'pet_type': pet_type,
+                'search_results': search_results,
+                'research_timestamp': datetime.utcnow().isoformat(),
+                'research_source': 'web_search'
+            }
+        
+        # STEP 2: Fallback to ADK agent if web search fails
+        logger.info(f"⚠️ Web search returned no results, trying ADK agent for {ingredient}")
         try:
-            # Call ADK Research Agent ONCE (was calling 2x before)
             headers = {
                 'Authorization': f'Bearer {adk_config["access_token"]}',
                 'Content-Type': 'application/json'
@@ -754,7 +840,6 @@ class RealResearchAgent:
                 'pet_type': pet_type
             }
             
-            # Reduced timeout from 45s to 15s to fail faster
             response = requests.post(
                 agent_url,
                 headers=headers,
@@ -772,11 +857,12 @@ class RealResearchAgent:
                     'search_results': [{
                         'query': f"{ingredient} safety for {pet_type}s",
                         'content': content,
-                        'source': 'ADK Research Agent',
+                        'source': 'ADK Research Agent (LLM Knowledge)',
                         'timestamp': datetime.utcnow().isoformat(),
                         'agent_type': 'adk_research_agent'
                     }],
-                    'research_timestamp': datetime.utcnow().isoformat()
+                    'research_timestamp': datetime.utcnow().isoformat(),
+                    'research_source': 'adk_agent'
                 }
             else:
                 logger.error(f"ADK Research Agent error: {response.status_code}")
