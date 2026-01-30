@@ -71,7 +71,7 @@ class PetIngredientChecker {
             const data = await response.json();
             
             if (data.success) {
-                this.displayResults(data.results, petType);
+                this.displayResults(data.results, petType, data);
             } else {
                 throw new Error(data.error || 'Unknown error occurred');
             }
@@ -170,7 +170,7 @@ class PetIngredientChecker {
         }
     }
 
-    displayResults(results, petType) {
+    displayResults(results, petType, responseData) {
         this.inputSection.style.display = 'none';
         this.resultsSection.style.display = 'block';
 
@@ -179,7 +179,26 @@ class PetIngredientChecker {
         const resultsHeader = this.resultsSection.querySelector('h2');
         resultsHeader.textContent = `${petEmoji} 🔍 Ingredient Safety Assessment for ${petType.charAt(0).toUpperCase() + petType.slice(1)}s`;
 
-        this.resultsContent.innerHTML = this.generateResultsHTML(results);
+        // Show fallback warning if in fallback mode
+        let fallbackWarning = '';
+        if (responseData && responseData.fallback_mode) {
+            fallbackWarning = `
+                <div class="fallback-warning" style="background: #fff3cd; border: 2px solid #ffc107; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: start; gap: 12px;">
+                        <span style="font-size: 24px;">⚠️</span>
+                        <div>
+                            <strong style="color: #856404; font-size: 16px;">Limited Capacity Mode</strong>
+                            <p style="margin: 8px 0 0 0; color: #856404;">
+                                AI agents are currently unavailable. Using knowledge-based database instead.
+                                ${responseData.fallback_details ? `<br><small>Reason: ${responseData.fallback_details}</small>` : ''}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        this.resultsContent.innerHTML = fallbackWarning + this.generateResultsHTML(results);
     }
 
     generateResultsHTML(results) {

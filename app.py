@@ -57,8 +57,13 @@ adk_enabled = bool(adk_config['access_token'])
 
 if adk_enabled:
     logger.info("✅ ADK agents configured - using deployed agent endpoints")
+    logger.info(f"   Research Agent URL: {adk_config['research_agent_url']}")
+    logger.info(f"   Risk Agent URL: {adk_config['risk_agent_url']}")
+    logger.info(f"   Fact Check Agent URL: {adk_config['factcheck_agent_url']}")
 else:
-    logger.info("⚠️ ADK configuration missing - using knowledge-based system only")
+    logger.warning("⚠️ ADK configuration missing - DIGITALOCEAN_TOKEN not configured")
+    logger.warning("   App will use knowledge-based fallback system")
+    logger.warning("   Configure DIGITALOCEAN_TOKEN in App Platform to enable AI agents")
     adk_enabled = False
 
 class TokenUsageMetrics:
@@ -1135,16 +1140,34 @@ def evaluate_ingredients():
         results = loop.run_until_complete(real_agents.process_ingredients(ingredients, pet_type, category))
         loop.close()
         
-        return jsonify({
+        # Determine if we're actually using AI agents or fallback
+        using_ai = adk_enabled and any(
+            result.get('ai_powered', False) 
+            for category_results in results.values() 
+            for result in category_results
+        )
+        
+        response_data = {
             'success': True,
             'results': results,
             'pet_type': pet_type,
             'category': category,
             'processed_at': datetime.utcnow().isoformat(),
-            'mode': 'ai_powered_agent_system',
-            'ai_powered': True,
-            'agent_based': True
-        })
+            'mode': 'ai_powered_agent_system' if using_ai else 'knowledge_based_fallback',
+            'ai_powered': using_ai,
+            'agent_based': using_ai
+        }
+        
+        # Add fallback warning if not using AI
+        if not using_ai:
+            response_data['fallback_mode'] = True
+            response_data['fallback_reason'] = 'AI agents unavailable - using knowledge database'
+            if not adk_enabled:
+                response_data['fallback_details'] = 'DIGITALOCEAN_TOKEN not configured'
+            else:
+                response_data['fallback_details'] = 'Agent endpoints returning errors'
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"Error in evaluate_ingredients: {e}")
