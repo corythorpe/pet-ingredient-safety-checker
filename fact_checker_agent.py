@@ -36,7 +36,7 @@ async def fact_check_and_validate(state: FactCheckState) -> FactCheckState:
     research_data = state["research_data"]
     risk_level = state["risk_level"]
     
-    fact_check_prompt = f"""STRICT FACT-CHECK AND SOURCE VALIDATION - ZERO TOLERANCE FOR VAGUE SOURCES
+    fact_check_prompt = f"""FACT-CHECK AND SOURCE VALIDATION WITH CONFIDENCE LEVELS
 
 Ingredient: {ingredient}
 Pet Type: {pet_type}
@@ -45,71 +45,80 @@ Proposed Risk Level: {risk_level}
 Research Data:
 {research_data}
 
-CRITICAL VALIDATION REQUIREMENTS - FAIL IF ANY ARE NOT MET:
-1. Research must contain AT LEAST 2 specific, direct source URLs about this exact ingredient
-2. Each source must be a direct link to specific content about THIS ingredient (not search results or homepages)
-3. Sources must provide specific toxicity mechanisms OR specific safety confirmations
-4. If ANY source is generic, vague, or a search URL, FAIL validation immediately
-5. Risk assessment must be backed by specific, verifiable data from authoritative sources
+VALIDATION TIERS (use best available data):
 
-MANDATORY SOURCE VALIDATION CHECKLIST:
-□ At least 2 direct, specific URLs present
-□ Each URL leads to ingredient-specific content (not general pages)
-□ Sources contain specific toxicity data OR safety confirmations
-□ No search URLs (containing "search?", "/search/", etc.)
-□ No generic homepages without specific ingredient information
-□ Sources are from authoritative veterinary/toxicology organizations
+TIER 1 - HIGH CONFIDENCE (preferred):
+- At least 2 specific, authoritative source URLs about this exact ingredient
+- Sources provide detailed toxicity mechanisms OR safety confirmations
+- From trusted organizations (ASPCA, Pet Poison Helpline, VCA, peer-reviewed studies)
 
-ACCEPTABLE SOURCE FORMATS (must be ingredient-specific):
-✓ https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/[specific-ingredient]
-✓ https://www.petpoisonhelpline.com/poison/[specific-ingredient]/
-✓ Direct DOI links to peer-reviewed studies about this ingredient
-✓ Specific FDA/USDA safety assessments with document numbers
-✓ VCA Animal Hospital pages about this specific ingredient
+TIER 2 - MEDIUM CONFIDENCE (acceptable):
+- At least 1 specific source OR multiple general veterinary sources
+- Contains useful safety information even if not perfectly specific
+- Risk assessment supported by veterinary knowledge
 
-AUTOMATIC VALIDATION FAILURE TRIGGERS:
-✗ https://www.aspca.org/search?query=anything
-✗ https://www.aspca.org/pet-care/animal-poison-control (homepage only)
-✗ https://www.petpoisonhelpline.com/search/
-✗ Generic "pet safety" or "toxic foods" lists
-✗ Vague references like "veterinary sources" without specific citations
-✗ Blog posts, forums, or non-authoritative websites
-✗ Fewer than 2 specific sources
-✗ Sources that don't mention this specific ingredient
+TIER 3 - LOW CONFIDENCE (minimal):
+- General veterinary knowledge about ingredient category
+- Informed estimates based on similar ingredients
+- Conservative safety assessment
 
-VALIDATION PROCESS:
-1. Count specific, direct source URLs in research data
-2. Verify each source is ingredient-specific (not general pet safety)
-3. Confirm sources provide detailed toxicity OR safety information
-4. Check that risk assessment is supported by source evidence
-5. If ANY validation step fails, set validation_failed: true
+SOURCE QUALITY EVALUATION:
+GOOD sources:
+✓ https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/[ingredient]
+✓ https://www.petpoisonhelpline.com/poison/[ingredient]/
+✓ VCA Hospital pages about specific ingredients
+✓ Peer-reviewed studies
+
+ACCEPTABLE but less specific:
+• General ASPCA/Pet Poison Helpline pages with relevant info
+• Veterinary articles mentioning the ingredient
+• Professional veterinary websites
+
+AVOID if possible:
+✗ Search result URLs
+✗ Generic homepages without content
+✗ Non-veterinary blogs
 
 RESPONSE FORMAT (JSON only):
-If validation PASSES (all requirements met):
+For HIGH CONFIDENCE (Tier 1):
 {{
+    "confidence_level": "high",
     "validation_failed": false,
     "validated_risk": "{risk_level}",
     "mechanism": "[specific mechanism from sources]",
-    "symptoms": "[specific symptoms from sources]",
-    "specific_sources": ["array of verified specific URLs only"],
+    "symptoms": "[specific symptoms]",
+    "specific_sources": ["array of URLs"],
     "source_quality": "high - specific authoritative sources",
-    "emergency_contacts": "ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
+    "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
 }}
 
-If validation FAILS (any requirement not met):
+For MEDIUM CONFIDENCE (Tier 2):
 {{
-    "validation_failed": true,
-    "failure_reason": "[specific reason: insufficient sources/generic sources/vague information/etc.]",
-    "validated_risk": "error",
-    "mechanism": "Unable to determine - insufficient specific sources",
-    "symptoms": "Cannot reliably determine symptoms without specific authoritative sources",
-    "specific_sources": [],
-    "source_quality": "insufficient - lacks specific authoritative sources",
-    "emergency_contacts": "ASPCA Animal Poison Control: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661",
-    "recommendation": "Consult veterinarian immediately for professional assessment"
+    "confidence_level": "medium",
+    "validation_failed": false,
+    "validated_risk": "{risk_level}",
+    "mechanism": "[mechanism based on available data]",
+    "symptoms": "[general symptoms if known]",
+    "specific_sources": ["available sources"],
+    "source_quality": "medium - general veterinary information",
+    "confidence_note": "Limited specific sources - based on general veterinary knowledge",
+    "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
 }}
 
-CRITICAL: If research data lacks specific sources or contains vague information, validation MUST fail."""
+For LOW CONFIDENCE (Tier 3):
+{{
+    "confidence_level": "low",
+    "validation_failed": false,
+    "validated_risk": "medium",
+    "mechanism": "Insufficient data - recommend veterinary consultation",
+    "symptoms": "Monitor for any unusual behavior, vomiting, diarrhea, or lethargy",
+    "specific_sources": ["ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control"],
+    "source_quality": "low - insufficient specific data",
+    "confidence_note": "Very limited data available - consult veterinarian before feeding",
+    "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
+}}
+
+Only return validation_failed: true if absolutely NO useful information exists."""
 
     response = await llm.ainvoke(fact_check_prompt)
     fact_check_response = response.content

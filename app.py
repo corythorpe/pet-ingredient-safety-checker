@@ -1022,6 +1022,7 @@ class AIMultiAgentSystem:
                 fact_check_data = validated_data.get('fact_check', {})
                 final_risk = validated_data.get('validated_risk', 'error')
                 validation_failed = fact_check_data.get('validation_failed', False)
+                confidence_level = fact_check_data.get('confidence_level', 'unknown')
                 
                 if validation_failed or final_risk == 'error':
                     # Handle validation failure - return error result
@@ -1048,14 +1049,23 @@ class AIMultiAgentSystem:
                     if not isinstance(sources, list):
                         sources = [sources] if sources else ['ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control']
                     
+                    # Build justification with confidence note if applicable
+                    justification = f"{ingredient.capitalize()} {self._get_risk_description(final_risk)} for {pet_type}s. {fact_check_data.get('mechanism', '')} {fact_check_data.get('symptoms', '')}"
+                    
+                    # Add confidence note for medium/low confidence results
+                    if confidence_level in ['medium', 'low'] and 'confidence_note' in fact_check_data:
+                        justification += f" Note: {fact_check_data['confidence_note']}"
+                    
                     formatted_result = {
                         'name': ingredient,
                         'risk_level': final_risk,
-                        'justification': f"{ingredient.capitalize()} {self._get_risk_description(final_risk)} for {pet_type}s. {fact_check_data.get('mechanism', '')} {fact_check_data.get('symptoms', '')}",
+                        'justification': justification,
                         'sources': sources,  # Always array format
                         'cached': False,
                         'ai_powered': True,
-                        'knowledge_based': False
+                        'knowledge_based': False,
+                        'confidence_level': confidence_level,  # Add confidence level
+                        'limited_data': confidence_level in ['medium', 'low']  # Flag for UI
                     }
                 
                 # Cache the result for future use

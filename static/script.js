@@ -222,16 +222,28 @@ class PetIngredientChecker {
                         <span>(${ingredients.length} ingredient${ingredients.length !== 1 ? 's' : ''})</span>
                     </div>
                     ${hasIngredients ? 
-                        ingredients.map(ingredient => `
+                        ingredients.map(ingredient => {
+                            // Determine confidence badge
+                            let confidenceBadge = '';
+                            if (ingredient.limited_data || ingredient.confidence_level === 'medium' || ingredient.confidence_level === 'low') {
+                                const level = ingredient.confidence_level || 'medium';
+                                const levelText = level.charAt(0).toUpperCase() + level.slice(1);
+                                const levelColor = level === 'low' ? '#ff9800' : '#ffc107';
+                                confidenceBadge = `<div class="confidence-badge" style="background: ${levelColor}; color: #000; padding: 4px 8px; border-radius: 4px; display: inline-block; font-size: 0.85em; margin-top: 8px;">⚠️ ${levelText} Confidence - Limited Data Available</div>`;
+                            }
+                            
+                            return `
                             <div class="ingredient-item">
                                 <div class="ingredient-name">${this.capitalizeFirst(ingredient.name)}</div>
                                 <div class="ingredient-justification">${ingredient.justification}</div>
+                                ${confidenceBadge}
                                 <div class="ingredient-sources">
                                     <strong>Sources:</strong> ${this.makeUrlsClickable(ingredient.sources)}
                                 </div>
                                 ${ingredient.cached ? '<div class="cached-indicator">📋 Cached Result</div>' : '<div class="live-indicator">🔍 Live Research</div>'}
                             </div>
-                        `).join('') :
+                        `;
+                        }).join('') :
                         `<div class="empty-category">No ingredients found in this category</div>`
                     }
                 </div>
