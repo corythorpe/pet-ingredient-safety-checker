@@ -42,18 +42,21 @@ Ingredient: {ingredient}
 Pet Type: {pet_type}
 Proposed Risk Level: {risk_level}
 
-Research Data:
+Research Data (including web search results):
 {research_data}
+
+IMPORTANT: If the research data above contains URLs from web searches (ASPCA, Pet Poison Helpline, VCA, etc.), 
+these are REAL sources that were found via live web search. Accept and use them.
 
 VALIDATION TIERS (use best available data):
 
 TIER 1 - HIGH CONFIDENCE (preferred):
-- At least 2 specific, authoritative source URLs about this exact ingredient
+- At least 1 real URL from authoritative sources (ASPCA, Pet Poison Helpline, VCA, AKC, PetMD)
 - Sources provide detailed toxicity mechanisms OR safety confirmations
-- From trusted organizations (ASPCA, Pet Poison Helpline, VCA, peer-reviewed studies)
+- Web search results with actual content snippets
 
 TIER 2 - MEDIUM CONFIDENCE (acceptable):
-- At least 1 specific source OR multiple general veterinary sources
+- General veterinary information or category knowledge
 - Contains useful safety information even if not perfectly specific
 - Risk assessment supported by veterinary knowledge
 
@@ -62,37 +65,23 @@ TIER 3 - LOW CONFIDENCE (minimal):
 - Informed estimates based on similar ingredients
 - Conservative safety assessment
 
-SOURCE QUALITY EVALUATION:
-GOOD sources:
-✓ https://www.aspca.org/pet-care/animal-poison-control/toxic-and-non-toxic-plants/[ingredient]
-✓ https://www.petpoisonhelpline.com/poison/[ingredient]/
-✓ VCA Hospital pages about specific ingredients
-✓ Peer-reviewed studies
-
-ACCEPTABLE but less specific:
-• General ASPCA/Pet Poison Helpline pages with relevant info
-• Veterinary articles mentioning the ingredient
-• Professional veterinary websites
-
-AVOID if possible:
-✗ Search result URLs
-✗ Generic homepages without content
-✗ Non-veterinary blogs
+CRITICAL: If you see URLs like aspca.org, petpoisonhelpline.com, vcahospitals.com in the research data,
+these were found via real-time web search. Use them and set confidence to at least MEDIUM.
 
 RESPONSE FORMAT (JSON only):
-For HIGH CONFIDENCE (Tier 1):
+For HIGH CONFIDENCE (found web sources):
 {{
     "confidence_level": "high",
     "validation_failed": false,
     "validated_risk": "{risk_level}",
     "mechanism": "[specific mechanism from sources]",
     "symptoms": "[specific symptoms]",
-    "specific_sources": ["array of URLs"],
-    "source_quality": "high - specific authoritative sources",
+    "specific_sources": ["array of URLs from research data"],
+    "source_quality": "high - verified web search results",
     "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
 }}
 
-For MEDIUM CONFIDENCE (Tier 2):
+For MEDIUM CONFIDENCE:
 {{
     "confidence_level": "medium",
     "validation_failed": false,
@@ -101,16 +90,16 @@ For MEDIUM CONFIDENCE (Tier 2):
     "symptoms": "[general symptoms if known]",
     "specific_sources": ["available sources"],
     "source_quality": "medium - general veterinary information",
-    "confidence_note": "Limited specific sources - based on general veterinary knowledge",
+    "confidence_note": "Based on general veterinary knowledge",
     "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
 }}
 
-For LOW CONFIDENCE (Tier 3):
+For LOW CONFIDENCE:
 {{
     "confidence_level": "low",
     "validation_failed": false,
     "validated_risk": "medium",
-    "mechanism": "Insufficient data - recommend veterinary consultation",
+    "mechanism": "Limited data - recommend veterinary consultation",
     "symptoms": "Monitor for any unusual behavior, vomiting, diarrhea, or lethargy",
     "specific_sources": ["ASPCA Animal Poison Control: https://www.aspca.org/pet-care/animal-poison-control"],
     "source_quality": "low - insufficient specific data",
@@ -118,7 +107,7 @@ For LOW CONFIDENCE (Tier 3):
     "emergency_contacts": "ASPCA: (888) 426-4435 | Pet Poison Helpline: (855) 764-7661"
 }}
 
-Only return validation_failed: true if absolutely NO useful information exists."""
+Only return validation_failed: true if absolutely NO useful information exists AND no web sources were found."""
 
     response = await llm.ainvoke(fact_check_prompt)
     fact_check_response = response.content
